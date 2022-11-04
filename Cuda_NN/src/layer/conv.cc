@@ -27,7 +27,7 @@ void Conv::im2col(const Vector& image, Matrix& data_col) {
   // im2col
   data_col.resize(hw_out, hw_kernel * channel_in);
   for (int c = 0; c < channel_in; c ++) {
-    Vector map = image.block(hw_in * c, 0, hw_in, 1);  // c-th channel map
+    Vector map = image.block(hw_in * c, 0, hw_in, 1);  // c-th channel map // Block of size (hw_in,1) starting at (hw_in*c, 0)
     for (int i = 0; i < hw_out; i ++) {
       int step_h = i / width_out;
       int step_w = i % width_out;
