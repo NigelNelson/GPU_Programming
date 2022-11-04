@@ -35,13 +35,22 @@ float cpu_time(timespec* start, timespec* end){
 
 
 int main(void) {
+
+  cudaError_t error;
+	int count;	//stores the number of CUDA compatible devices
+
+	error = cudaGetDeviceCount(&count);	//get the number of devices with compute capability >= 2.0
+
+	if(error != cudaSuccess){	//if there is an error getting the device count
+		printf("\nERROR calling cudaGetDeviceCount()\n");	//display an error message
+		return error;	//return the error
+	}
+
+  std::cout << "Number of Cuda Devices: " << count << std::endl;
+
   //data
   MNIST dataset("../data/mnist/");
   dataset.read();
-  int n_train = dataset.train_data.cols();
-  int dim_in = dataset.train_data.rows();
-  std::cout << "mnist train number: " << n_train << std::endl;
-  std::cout << "mnist test number: " << dataset.test_labels.cols() << std::endl;
   // dnn
   Network dnn;
   Layer* conv1 = new Conv(1, 28, 28, 4, 5, 5, 2, 2, 2);
