@@ -10,6 +10,8 @@
 #ifndef EIGEN_TRIANGULARMATRIXVECTOR_H
 #define EIGEN_TRIANGULARMATRIXVECTOR_H
 
+#include "../InternalHeaderCheck.h"
+
 namespace Eigen {
 
 namespace internal {
@@ -209,20 +211,20 @@ template<int Mode> struct trmv_selector<Mode,ColMajor>
     typedef typename Lhs::Scalar      LhsScalar;
     typedef typename Rhs::Scalar      RhsScalar;
     typedef typename Dest::Scalar     ResScalar;
-    typedef typename Dest::RealScalar RealScalar;
     
     typedef internal::blas_traits<Lhs> LhsBlasTraits;
     typedef typename LhsBlasTraits::DirectLinearAccessType ActualLhsType;
     typedef internal::blas_traits<Rhs> RhsBlasTraits;
     typedef typename RhsBlasTraits::DirectLinearAccessType ActualRhsType;
     
-    typedef Map<Matrix<ResScalar,Dynamic,1>, EIGEN_PLAIN_ENUM_MIN(AlignedMax,internal::packet_traits<ResScalar>::size)> MappedDest;
+    typedef Map<Matrix<ResScalar,Dynamic,1>, plain_enum_min(AlignedMax,internal::packet_traits<ResScalar>::size)> MappedDest;
 
-    typename internal::add_const_on_value_type<ActualLhsType>::type actualLhs = LhsBlasTraits::extract(lhs);
-    typename internal::add_const_on_value_type<ActualRhsType>::type actualRhs = RhsBlasTraits::extract(rhs);
+    add_const_on_value_type_t<ActualLhsType> actualLhs = LhsBlasTraits::extract(lhs);
+    add_const_on_value_type_t<ActualRhsType> actualRhs = RhsBlasTraits::extract(rhs);
 
-    ResScalar actualAlpha = alpha * LhsBlasTraits::extractScalarFactor(lhs)
-                                  * RhsBlasTraits::extractScalarFactor(rhs);
+    LhsScalar lhs_alpha = LhsBlasTraits::extractScalarFactor(lhs);
+    RhsScalar rhs_alpha = RhsBlasTraits::extractScalarFactor(rhs);
+    ResScalar actualAlpha = alpha * lhs_alpha * rhs_alpha;
 
     enum {
       // FIXME find a way to allow an inner stride on the result if packet_traits<Scalar>::size==1
@@ -234,7 +236,7 @@ template<int Mode> struct trmv_selector<Mode,ColMajor>
 
     gemv_static_vector_if<ResScalar,Dest::SizeAtCompileTime,Dest::MaxSizeAtCompileTime,MightCannotUseDest> static_dest;
 
-    bool alphaIsCompatible = (!ComplexByReal) || (numext::imag(actualAlpha)==RealScalar(0));
+    bool alphaIsCompatible = (!ComplexByReal) || numext::is_exactly_zero(numext::imag(actualAlpha));
     bool evalToDest = EvalToDestAtCompileTime && alphaIsCompatible;
 
     RhsScalar compatibleAlpha = get_factor<ResScalar,RhsScalar>::run(actualAlpha);
@@ -274,6 +276,12 @@ template<int Mode> struct trmv_selector<Mode,ColMajor>
       else
         dest = MappedDest(actualDestPtr, dest.size());
     }
+
+    if ( ((Mode&UnitDiag)==UnitDiag) && !numext::is_exactly_one(lhs_alpha) )
+    {
+      Index diagSize = (std::min)(lhs.rows(),lhs.cols());
+      dest.head(diagSize) -= (lhs_alpha-LhsScalar(1))*rhs.head(diagSize);
+    }
   }
 };
 
@@ -290,13 +298,14 @@ template<int Mode> struct trmv_selector<Mode,RowMajor>
     typedef typename LhsBlasTraits::DirectLinearAccessType ActualLhsType;
     typedef internal::blas_traits<Rhs> RhsBlasTraits;
     typedef typename RhsBlasTraits::DirectLinearAccessType ActualRhsType;
-    typedef typename internal::remove_all<ActualRhsType>::type ActualRhsTypeCleaned;
+    typedef internal::remove_all_t<ActualRhsType> ActualRhsTypeCleaned;
 
-    typename add_const<ActualLhsType>::type actualLhs = LhsBlasTraits::extract(lhs);
-    typename add_const<ActualRhsType>::type actualRhs = RhsBlasTraits::extract(rhs);
+    std::add_const_t<ActualLhsType> actualLhs = LhsBlasTraits::extract(lhs);
+    std::add_const_t<ActualRhsType> actualRhs = RhsBlasTraits::extract(rhs);
 
-    ResScalar actualAlpha = alpha * LhsBlasTraits::extractScalarFactor(lhs)
-                                  * RhsBlasTraits::extractScalarFactor(rhs);
+    LhsScalar lhs_alpha = LhsBlasTraits::extractScalarFactor(lhs);
+    RhsScalar rhs_alpha = RhsBlasTraits::extractScalarFactor(rhs);
+    ResScalar actualAlpha = alpha * lhs_alpha * rhs_alpha;
 
     enum {
       DirectlyUseRhs = ActualRhsTypeCleaned::InnerStrideAtCompileTime==1
@@ -326,6 +335,12 @@ template<int Mode> struct trmv_selector<Mode,RowMajor>
             actualRhsPtr,1,
             dest.data(),dest.innerStride(),
             actualAlpha);
+
+    if ( ((Mode&UnitDiag)==UnitDiag) && !numext::is_exactly_one(lhs_alpha) )
+    {
+      Index diagSize = (std::min)(lhs.rows(),lhs.cols());
+      dest.head(diagSize) -= (lhs_alpha-LhsScalar(1))*rhs.head(diagSize);
+    }
   }
 };
 

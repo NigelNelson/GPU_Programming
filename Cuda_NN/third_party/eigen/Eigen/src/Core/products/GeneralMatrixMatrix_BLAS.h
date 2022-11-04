@@ -33,6 +33,8 @@
 #ifndef EIGEN_GENERAL_MATRIX_MATRIX_BLAS_H
 #define EIGEN_GENERAL_MATRIX_MATRIX_BLAS_H
 
+#include "../InternalHeaderCheck.h"
+
 namespace Eigen { 
 
 namespace internal {
@@ -46,25 +48,27 @@ namespace internal {
 
 // gemm specialization
 
-#define GEMM_SPECIALIZATION(EIGTYPE, EIGPREFIX, BLASTYPE, BLASPREFIX) \
+#define GEMM_SPECIALIZATION(EIGTYPE, EIGPREFIX, BLASTYPE, BLASFUNC) \
 template< \
   typename Index, \
   int LhsStorageOrder, bool ConjugateLhs, \
   int RhsStorageOrder, bool ConjugateRhs> \
-struct general_matrix_matrix_product<Index,EIGTYPE,LhsStorageOrder,ConjugateLhs,EIGTYPE,RhsStorageOrder,ConjugateRhs,ColMajor> \
+struct general_matrix_matrix_product<Index,EIGTYPE,LhsStorageOrder,ConjugateLhs,EIGTYPE,RhsStorageOrder,ConjugateRhs,ColMajor,1> \
 { \
 typedef gebp_traits<EIGTYPE,EIGTYPE> Traits; \
 \
 static void run(Index rows, Index cols, Index depth, \
   const EIGTYPE* _lhs, Index lhsStride, \
   const EIGTYPE* _rhs, Index rhsStride, \
-  EIGTYPE* res, Index resStride, \
+  EIGTYPE* res, Index resIncr, Index resStride, \
   EIGTYPE alpha, \
   level3_blocking<EIGTYPE, EIGTYPE>& /*blocking*/, \
   GemmParallelInfo<Index>* /*info = 0*/) \
 { \
   using std::conj; \
 \
+  EIGEN_ONLY_USED_FOR_DEBUG(resIncr); \
+  eigen_assert(resIncr == 1); \
   char transa, transb; \
   BlasIndex m, n, k, lda, ldb, ldc; \
   const EIGTYPE *a, *b; \
@@ -100,13 +104,20 @@ static void run(Index rows, Index cols, Index depth, \
     ldb = convert_index<BlasIndex>(b_tmp.outerStride()); \
   } else b = _rhs; \
 \
-  BLASPREFIX##gemm_(&transa, &transb, &m, &n, &k, &numext::real_ref(alpha), (const BLASTYPE*)a, &lda, (const BLASTYPE*)b, &ldb, &numext::real_ref(beta), (BLASTYPE*)res, &ldc); \
+  BLASFUNC(&transa, &transb, &m, &n, &k, (const BLASTYPE*)&numext::real_ref(alpha), (const BLASTYPE*)a, &lda, (const BLASTYPE*)b, &ldb, (const BLASTYPE*)&numext::real_ref(beta), (BLASTYPE*)res, &ldc); \
 }};
 
-GEMM_SPECIALIZATION(double,   d,  double, d)
-GEMM_SPECIALIZATION(float,    f,  float,  s)
-GEMM_SPECIALIZATION(dcomplex, cd, double, z)
-GEMM_SPECIALIZATION(scomplex, cf, float,  c)
+#ifdef EIGEN_USE_MKL
+GEMM_SPECIALIZATION(double,   d,  double, dgemm)
+GEMM_SPECIALIZATION(float,    f,  float,  sgemm)
+GEMM_SPECIALIZATION(dcomplex, cd, MKL_Complex16, zgemm)
+GEMM_SPECIALIZATION(scomplex, cf, MKL_Complex8,  cgemm)
+#else
+GEMM_SPECIALIZATION(double,   d,  double, dgemm_)
+GEMM_SPECIALIZATION(float,    f,  float,  sgemm_)
+GEMM_SPECIALIZATION(dcomplex, cd, double, zgemm_)
+GEMM_SPECIALIZATION(scomplex, cf, float,  cgemm_)
+#endif
 
 } // end namespase internal
 

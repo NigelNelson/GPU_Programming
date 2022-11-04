@@ -8,12 +8,22 @@
 // Public License v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-// work around "uninitialized" warnings and give that option some testing
-#define EIGEN_INITIALIZE_MATRICES_BY_ZERO
+#if defined(EIGEN_TEST_PART_7)
 
-#ifndef EIGEN_NO_STATIC_ASSERT
-#define EIGEN_NO_STATIC_ASSERT // turn static asserts into runtime asserts in order to check them
+// ignore double-promotion diagnostic for clang and gcc, if we check for static assertion anyway:
+// TODO do the same for MSVC?
+#if defined(__clang__)
+#  if (__clang_major__ * 100 + __clang_minor__) >= 308
+#    pragma clang diagnostic ignored "-Wdouble-promotion"
+#  endif
+#elif defined(__GNUC__)
+  // TODO is there a minimal GCC version for this? At least g++-4.7 seems to be fine with this.
+#  pragma GCC diagnostic ignored "-Wdouble-promotion"
 #endif
+
+#endif
+
+
 
 #if defined(EIGEN_TEST_PART_1) || defined(EIGEN_TEST_PART_2) || defined(EIGEN_TEST_PART_3)
 
@@ -69,17 +79,10 @@ template<int SizeAtCompileType> void mixingtypes(int size = SizeAtCompileType)
   double epsd = std::sqrt(std::numeric_limits<double>::min EIGEN_EMPTY ());
 
   while(std::abs(sf )<epsf) sf  = internal::random<float>();
-  while(std::abs(sd )<epsd) sf  = internal::random<double>();
+  while(std::abs(sd )<epsd) sd  = internal::random<double>();
   while(std::abs(scf)<epsf) scf = internal::random<CF>();
   while(std::abs(scd)<epsd) scd = internal::random<CD>();
 
-//   VERIFY_RAISES_ASSERT(mf+md); // does not even compile
-
-#ifdef EIGEN_DONT_VECTORIZE
-  VERIFY_RAISES_ASSERT(vf=vd);
-  VERIFY_RAISES_ASSERT(vf+=vd);
-#endif
-  
   // check scalar products
   VERIFY_MIX_SCALAR(vcf * sf , vcf * complex<float>(sf));
   VERIFY_MIX_SCALAR(sd * vcd , complex<double>(sd) * vcd);
@@ -110,18 +113,16 @@ template<int SizeAtCompileType> void mixingtypes(int size = SizeAtCompileType)
   VERIFY_MIX_SCALAR(scd - vd.array() , scd - vd.template cast<complex<double> >().array());
 
   // check scalar powers
-  VERIFY_MIX_SCALAR( pow(vcf.array(), sf),        Eigen::pow(vcf.array(), complex<float>(sf)) );
-  VERIFY_MIX_SCALAR( vcf.array().pow(sf) ,        Eigen::pow(vcf.array(), complex<float>(sf)) );
+  // NOTE: scalar exponents use a unary op.
+  VERIFY_IS_APPROX( pow(vcf.array(), sf),        Eigen::pow(vcf.array(), complex<float>(sf)) );
+  VERIFY_IS_APPROX( vcf.array().pow(sf) ,        Eigen::pow(vcf.array(), complex<float>(sf)) );
   VERIFY_MIX_SCALAR( pow(sd, vcd.array()),        Eigen::pow(complex<double>(sd), vcd.array()) );
-  VERIFY_MIX_SCALAR( Eigen::pow(vf.array(), scf), Eigen::pow(vf.template cast<complex<float> >().array(), scf) );
-  VERIFY_MIX_SCALAR( vf.array().pow(scf) ,        Eigen::pow(vf.template cast<complex<float> >().array(), scf) );
+  VERIFY_IS_APPROX( Eigen::pow(vf.array(), scf), Eigen::pow(vf.template cast<complex<float> >().array(), scf) );
+  VERIFY_IS_APPROX( vf.array().pow(scf) ,        Eigen::pow(vf.template cast<complex<float> >().array(), scf) );
   VERIFY_MIX_SCALAR( Eigen::pow(scd, vd.array()), Eigen::pow(scd, vd.template cast<complex<double> >().array()) );
 
   // check dot product
   vf.dot(vf);
-#if 0 // we get other compilation errors here than just static asserts
-  VERIFY_RAISES_ASSERT(vd.dot(vf));
-#endif
   VERIFY_IS_APPROX(vcf.dot(vf), vcf.dot(vf.template cast<complex<float> >()));
 
   // check diagonal product
@@ -129,9 +130,6 @@ template<int SizeAtCompileType> void mixingtypes(int size = SizeAtCompileType)
   VERIFY_IS_APPROX(vcd.asDiagonal() * md, vcd.asDiagonal() * md.template cast<complex<double> >());
   VERIFY_IS_APPROX(mcf * vf.asDiagonal(), mcf * vf.template cast<complex<float> >().asDiagonal());
   VERIFY_IS_APPROX(md * vcd.asDiagonal(), md.template cast<complex<double> >() * vcd.asDiagonal());
-
-//   vd.asDiagonal() * mf;    // does not even compile
-//   vcd.asDiagonal() * mf;   // does not even compile
 
   // check inner product
   VERIFY_IS_APPROX((vf.transpose() * vcf).value(), (vf.template cast<complex<float> >().transpose() * vcf).value());
@@ -286,8 +284,9 @@ template<int SizeAtCompileType> void mixingtypes(int size = SizeAtCompileType)
   VERIFY_IS_APPROX( rcd.noalias() -= mcd + md*md,           - ((md*md).eval().template cast<CD>()) );
 }
 
-void test_mixingtypes()
+EIGEN_DECLARE_TEST(mixingtypes)
 {
+  g_called = false; // Silence -Wunneeded-internal-declaration.
   for(int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1(mixingtypes<3>());
     CALL_SUBTEST_2(mixingtypes<4>());

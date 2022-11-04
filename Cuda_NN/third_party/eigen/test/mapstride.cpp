@@ -11,7 +11,6 @@
 
 template<int Alignment,typename VectorType> void map_class_vector(const VectorType& m)
 {
-  typedef typename VectorType::Index Index;
   typedef typename VectorType::Scalar Scalar;
 
   Index size = m.size();
@@ -30,8 +29,8 @@ template<int Alignment,typename VectorType> void map_class_vector(const VectorTy
     map = v;
     for(int i = 0; i < size; ++i)
     {
-      VERIFY(array[3*i] == v[i]);
-      VERIFY(map[i] == v[i]);
+      VERIFY_IS_EQUAL(array[3*i], v[i]);
+      VERIFY_IS_EQUAL(map[i], v[i]);
     }
   }
 
@@ -40,8 +39,8 @@ template<int Alignment,typename VectorType> void map_class_vector(const VectorTy
     map = v;
     for(int i = 0; i < size; ++i)
     {
-      VERIFY(array[2*i] == v[i]);
-      VERIFY(map[i] == v[i]);
+      VERIFY_IS_EQUAL(array[2*i], v[i]);
+      VERIFY_IS_EQUAL(map[i], v[i]);
     }
   }
 
@@ -50,7 +49,6 @@ template<int Alignment,typename VectorType> void map_class_vector(const VectorTy
 
 template<int Alignment,typename MatrixType> void map_class_matrix(const MatrixType& _m)
 {
-  typedef typename MatrixType::Index Index;
   typedef typename MatrixType::Scalar Scalar;
 
   Index rows = _m.rows(), cols = _m.cols();
@@ -58,7 +56,7 @@ template<int Alignment,typename MatrixType> void map_class_matrix(const MatrixTy
   MatrixType m = MatrixType::Random(rows,cols);
   Scalar s1 = internal::random<Scalar>();
 
-  Index arraysize = 2*(rows+4)*(cols+4);
+  Index arraysize = 4*(rows+4)*(cols+4);
 
   Scalar* a_array1 = internal::aligned_new<Scalar>(arraysize+1);
   Scalar* array1 = a_array1;
@@ -67,10 +65,13 @@ template<int Alignment,typename MatrixType> void map_class_matrix(const MatrixTy
 
   Scalar a_array2[256];
   Scalar* array2 = a_array2;
-  if(Alignment!=Aligned)
+  if(Alignment!=Aligned) {
     array2 = (Scalar*)(internal::IntPtr(a_array2) + (internal::packet_traits<Scalar>::AlignedOnScalar?sizeof(Scalar):sizeof(typename NumTraits<Scalar>::Real)));
-  else
-    array2 = (Scalar*)(((internal::UIntPtr(a_array2)+EIGEN_MAX_ALIGN_BYTES-1)/EIGEN_MAX_ALIGN_BYTES)*EIGEN_MAX_ALIGN_BYTES);
+  } else {
+    // In case there is no alignment, default to pointing to the start.
+    constexpr int alignment = (std::max<int>)(EIGEN_MAX_ALIGN_BYTES, 1);
+    array2 = (Scalar*)(((internal::UIntPtr(a_array2)+alignment-1)/alignment)*alignment);
+  }
   Index maxsize2 = a_array2 - array2 + 256;
   
   // test no inner stride and some dynamic outer stride
@@ -86,8 +87,8 @@ template<int Alignment,typename MatrixType> void map_class_matrix(const MatrixTy
     for(int i = 0; i < m.outerSize(); ++i)
       for(int j = 0; j < m.innerSize(); ++j)
       {
-        VERIFY(array[map.outerStride()*i+j] == m.coeffByOuterInner(i,j));
-        VERIFY(map.coeffByOuterInner(i,j) == m.coeffByOuterInner(i,j));
+        VERIFY_IS_EQUAL(array[map.outerStride()*i+j], m.coeffByOuterInner(i,j));
+        VERIFY_IS_EQUAL(map.coeffByOuterInner(i,j), m.coeffByOuterInner(i,j));
       }
     VERIFY_IS_APPROX(s1*map,s1*m);
     map *= s1;
@@ -113,8 +114,8 @@ template<int Alignment,typename MatrixType> void map_class_matrix(const MatrixTy
     for(int i = 0; i < m.outerSize(); ++i)
       for(int j = 0; j < m.innerSize(); ++j)
       {
-        VERIFY(array[map.outerStride()*i+j] == m.coeffByOuterInner(i,j));
-        VERIFY(map.coeffByOuterInner(i,j) == m.coeffByOuterInner(i,j));
+        VERIFY_IS_EQUAL(array[map.outerStride()*i+j], m.coeffByOuterInner(i,j));
+        VERIFY_IS_EQUAL(map.coeffByOuterInner(i,j), m.coeffByOuterInner(i,j));
       }
     VERIFY_IS_APPROX(s1*map,s1*m);
     map *= s1;
@@ -135,21 +136,100 @@ template<int Alignment,typename MatrixType> void map_class_matrix(const MatrixTy
     for(int i = 0; i < m.outerSize(); ++i)
       for(int j = 0; j < m.innerSize(); ++j)
       {
-        VERIFY(array[map.outerStride()*i+map.innerStride()*j] == m.coeffByOuterInner(i,j));
-        VERIFY(map.coeffByOuterInner(i,j) == m.coeffByOuterInner(i,j));
+        VERIFY_IS_EQUAL(array[map.outerStride()*i+map.innerStride()*j], m.coeffByOuterInner(i,j));
+        VERIFY_IS_EQUAL(map.coeffByOuterInner(i,j), m.coeffByOuterInner(i,j));
       }
     VERIFY_IS_APPROX(s1*map,s1*m);
     map *= s1;
     VERIFY_IS_APPROX(map,s1*m);
   }
 
+  // test inner stride and no outer stride
+  for(int k=0; k<2; ++k)
+  {
+    if(k==1 && (m.innerSize()*2)*m.outerSize() > maxsize2)
+      break;
+    Scalar* array = (k==0 ? array1 : array2);
+
+    Map<MatrixType, Alignment, InnerStride<Dynamic> > map(array, rows, cols, InnerStride<Dynamic>(2));
+    map = m;
+    VERIFY(map.outerStride() == map.innerSize()*2);
+    for(int i = 0; i < m.outerSize(); ++i)
+      for(int j = 0; j < m.innerSize(); ++j)
+      {
+        VERIFY_IS_EQUAL(array[map.innerSize()*i*2+j*2], m.coeffByOuterInner(i,j));
+        VERIFY_IS_EQUAL(map.coeffByOuterInner(i,j), m.coeffByOuterInner(i,j));
+      }
+    VERIFY_IS_APPROX(s1*map,s1*m);
+    map *= s1;
+    VERIFY_IS_APPROX(map,s1*m);
+  }
+
+  // test negative strides
+  {
+    Matrix<Scalar,Dynamic,1>::Map(a_array1, arraysize+1).setRandom();
+    Index outerstride = m.innerSize()+4;
+    Scalar* array = array1;
+
+    {
+      Map<MatrixType, Alignment, OuterStride<> > map1(array, rows, cols, OuterStride<>( outerstride));
+      Map<MatrixType, Unaligned, OuterStride<> > map2(array+(m.outerSize()-1)*outerstride, rows, cols, OuterStride<>(-outerstride));
+      if(MatrixType::IsRowMajor)  VERIFY_IS_APPROX(map1.colwise().reverse(), map2);
+      else                        VERIFY_IS_APPROX(map1.rowwise().reverse(), map2);
+    }
+
+    {
+      Map<MatrixType, Alignment, OuterStride<> > map1(array, rows, cols, OuterStride<>( outerstride));
+      Map<MatrixType, Unaligned, Stride<Dynamic,Dynamic> > map2(array+(m.outerSize()-1)*outerstride+m.innerSize()-1, rows, cols, Stride<Dynamic,Dynamic>(-outerstride,-1));
+      VERIFY_IS_APPROX(map1.reverse(), map2);
+    }
+
+    {
+      Map<MatrixType, Alignment, OuterStride<> > map1(array, rows, cols, OuterStride<>( outerstride));
+      Map<MatrixType, Unaligned, Stride<Dynamic,-1> > map2(array+(m.outerSize()-1)*outerstride+m.innerSize()-1, rows, cols, Stride<Dynamic,-1>(-outerstride,-1));
+      VERIFY_IS_APPROX(map1.reverse(), map2);
+    }
+  }
+
   internal::aligned_delete(a_array1, arraysize+1);
 }
 
-void test_mapstride()
+// Additional tests for inner-stride but no outer-stride
+template<int>
+void bug1453()
+{
+  const int data[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};
+  typedef Matrix<int,Dynamic,Dynamic,RowMajor> RowMatrixXi;
+  typedef Matrix<int,2,3,ColMajor> ColMatrix23i;
+  typedef Matrix<int,3,2,ColMajor> ColMatrix32i;
+  typedef Matrix<int,2,3,RowMajor> RowMatrix23i;
+  typedef Matrix<int,3,2,RowMajor> RowMatrix32i;
+
+  VERIFY_IS_APPROX(MatrixXi::Map(data, 2, 3, InnerStride<2>()), MatrixXi::Map(data, 2, 3, Stride<4,2>()));
+  VERIFY_IS_APPROX(MatrixXi::Map(data, 2, 3, InnerStride<>(2)), MatrixXi::Map(data, 2, 3, Stride<4,2>()));
+  VERIFY_IS_APPROX(MatrixXi::Map(data, 3, 2, InnerStride<2>()), MatrixXi::Map(data, 3, 2, Stride<6,2>()));
+  VERIFY_IS_APPROX(MatrixXi::Map(data, 3, 2, InnerStride<>(2)), MatrixXi::Map(data, 3, 2, Stride<6,2>()));
+
+  VERIFY_IS_APPROX(RowMatrixXi::Map(data, 2, 3, InnerStride<2>()), RowMatrixXi::Map(data, 2, 3, Stride<6,2>()));
+  VERIFY_IS_APPROX(RowMatrixXi::Map(data, 2, 3, InnerStride<>(2)), RowMatrixXi::Map(data, 2, 3, Stride<6,2>()));
+  VERIFY_IS_APPROX(RowMatrixXi::Map(data, 3, 2, InnerStride<2>()), RowMatrixXi::Map(data, 3, 2, Stride<4,2>()));
+  VERIFY_IS_APPROX(RowMatrixXi::Map(data, 3, 2, InnerStride<>(2)), RowMatrixXi::Map(data, 3, 2, Stride<4,2>()));
+
+  VERIFY_IS_APPROX(ColMatrix23i::Map(data, InnerStride<2>()), MatrixXi::Map(data, 2, 3, Stride<4,2>()));
+  VERIFY_IS_APPROX(ColMatrix23i::Map(data, InnerStride<>(2)), MatrixXi::Map(data, 2, 3, Stride<4,2>()));
+  VERIFY_IS_APPROX(ColMatrix32i::Map(data, InnerStride<2>()), MatrixXi::Map(data, 3, 2, Stride<6,2>()));
+  VERIFY_IS_APPROX(ColMatrix32i::Map(data, InnerStride<>(2)), MatrixXi::Map(data, 3, 2, Stride<6,2>()));
+
+  VERIFY_IS_APPROX(RowMatrix23i::Map(data, InnerStride<2>()), RowMatrixXi::Map(data, 2, 3, Stride<6,2>()));
+  VERIFY_IS_APPROX(RowMatrix23i::Map(data, InnerStride<>(2)), RowMatrixXi::Map(data, 2, 3, Stride<6,2>()));
+  VERIFY_IS_APPROX(RowMatrix32i::Map(data, InnerStride<2>()), RowMatrixXi::Map(data, 3, 2, Stride<4,2>()));
+  VERIFY_IS_APPROX(RowMatrix32i::Map(data, InnerStride<>(2)), RowMatrixXi::Map(data, 3, 2, Stride<4,2>()));
+}
+
+EIGEN_DECLARE_TEST(mapstride)
 {
   for(int i = 0; i < g_repeat; i++) {
-    int maxn = 30;
+    int maxn = 3;
     CALL_SUBTEST_1( map_class_vector<Aligned>(Matrix<float, 1, 1>()) );
     CALL_SUBTEST_1( map_class_vector<Unaligned>(Matrix<float, 1, 1>()) );
     CALL_SUBTEST_2( map_class_vector<Aligned>(Vector4d()) );
@@ -175,6 +255,8 @@ void test_mapstride()
     CALL_SUBTEST_5( map_class_matrix<Unaligned>(MatrixXi(internal::random<int>(1,maxn),internal::random<int>(1,maxn))) );
     CALL_SUBTEST_6( map_class_matrix<Aligned>(MatrixXcd(internal::random<int>(1,maxn),internal::random<int>(1,maxn))) );
     CALL_SUBTEST_6( map_class_matrix<Unaligned>(MatrixXcd(internal::random<int>(1,maxn),internal::random<int>(1,maxn))) );
+
+    CALL_SUBTEST_5( bug1453<0>() );
     
     TEST_SET_BUT_UNUSED_VARIABLE(maxn);
   }

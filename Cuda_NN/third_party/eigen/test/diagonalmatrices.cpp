@@ -7,11 +7,16 @@
 // Public License v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+
+// discard stack allocation as that too bypasses malloc
+#define EIGEN_STACK_ALLOCATION_LIMIT 0
+// heap allocation will raise an assert if enabled at runtime
+#define EIGEN_RUNTIME_NO_MALLOC
+
 #include "main.h"
 using namespace std;
 template<typename MatrixType> void diagonalmatrices(const MatrixType& m)
 {
-  typedef typename MatrixType::Index Index;
   typedef typename MatrixType::Scalar Scalar;
   enum { Rows = MatrixType::RowsAtCompileTime, Cols = MatrixType::ColsAtCompileTime };
   typedef Matrix<Scalar, Rows, 1> VectorType;
@@ -30,6 +35,7 @@ template<typename MatrixType> void diagonalmatrices(const MatrixType& m)
              v2 = VectorType::Random(rows);
   RowVectorType rv1 = RowVectorType::Random(cols),
              rv2 = RowVectorType::Random(cols);
+
   LeftDiagonalMatrix ldm1(v1), ldm2(v2);
   RightDiagonalMatrix rdm1(rv1), rdm2(rv2);
   
@@ -56,6 +62,7 @@ template<typename MatrixType> void diagonalmatrices(const MatrixType& m)
   Index i = internal::random<Index>(0, rows-1);
   Index j = internal::random<Index>(0, cols-1);
   
+  internal::set_is_malloc_allowed(false);
   VERIFY_IS_APPROX( ((ldm1 * m1)(i,j))  , ldm1.diagonal()(i) * m1(i,j) );
   VERIFY_IS_APPROX( ((ldm1 * (m1+m2))(i,j))  , ldm1.diagonal()(i) * (m1+m2)(i,j) );
   VERIFY_IS_APPROX( ((m1 * rdm1)(i,j))  , rdm1.diagonal()(j) * m1(i,j) );
@@ -65,6 +72,10 @@ template<typename MatrixType> void diagonalmatrices(const MatrixType& m)
   VERIFY_IS_APPROX( (((v1+v2).asDiagonal() * (m1+m2))(i,j))  , (v1+v2)(i) * (m1+m2)(i,j) );
   VERIFY_IS_APPROX( ((m1 * (rv1+rv2).asDiagonal())(i,j))  , (rv1+rv2)(j) * m1(i,j) );
   VERIFY_IS_APPROX( (((m1+m2) * (rv1+rv2).asDiagonal())(i,j))  , (rv1+rv2)(j) * (m1+m2)(i,j) );
+  VERIFY_IS_APPROX( (ldm1 * ldm1).diagonal()(i), ldm1.diagonal()(i) * ldm1.diagonal()(i) );
+  VERIFY_IS_APPROX( (ldm1 * ldm1 * m1)(i, j), ldm1.diagonal()(i) * ldm1.diagonal()(i) * m1(i, j) );
+  VERIFY_IS_APPROX( ((v1.asDiagonal() * v1.asDiagonal()).diagonal()(i)), v1(i) * v1(i) );
+  internal::set_is_malloc_allowed(true);
   
   if(rows>1)
   {
@@ -84,7 +95,15 @@ template<typename MatrixType> void diagonalmatrices(const MatrixType& m)
   big.block(i,j,rows,cols) = m1;
   big.block(i,j,rows,cols) = big.block(i,j,rows,cols) * rv1.asDiagonal();
   VERIFY_IS_APPROX((big.block(i,j,rows,cols)) , m1 * rv1.asDiagonal() );
-  
+
+  // products do not allocate memory
+  MatrixType res(rows, cols);
+  internal::set_is_malloc_allowed(false);
+  res.noalias() = ldm1 * m1;
+  res.noalias() = m1 * rdm1;
+  res.noalias() = ldm1 * m1 * rdm1;
+  res.noalias() = LeftDiagonalMatrix::Identity(rows) * m1 * RightDiagonalMatrix::Zero(cols);
+  internal::set_is_malloc_allowed(true);  
   
   // scalar multiple
   VERIFY_IS_APPROX(LeftDiagonalMatrix(ldm1*s1).diagonal(), ldm1.diagonal() * s1);
@@ -99,6 +118,52 @@ template<typename MatrixType> void diagonalmatrices(const MatrixType& m)
   VERIFY_IS_APPROX( (sq_m1 += (s1*v1).asDiagonal()), sq_m2 += (s1*v1).asDiagonal().toDenseMatrix() );
   VERIFY_IS_APPROX( (sq_m1 -= (s1*v1).asDiagonal()), sq_m2 -= (s1*v1).asDiagonal().toDenseMatrix() );
   VERIFY_IS_APPROX( (sq_m1 = (s1*v1).asDiagonal()), (s1*v1).asDiagonal().toDenseMatrix() );
+
+  sq_m1.setRandom();
+  sq_m2 = v1.asDiagonal();
+  sq_m2 = sq_m1 * sq_m2;
+  VERIFY_IS_APPROX( (sq_m1*v1.asDiagonal()).col(i), sq_m2.col(i) );
+  VERIFY_IS_APPROX( (sq_m1*v1.asDiagonal()).row(i), sq_m2.row(i) );
+
+  sq_m1 = v1.asDiagonal();
+  sq_m2 = v2.asDiagonal();
+  SquareMatrixType sq_m3 = v1.asDiagonal();
+  VERIFY_IS_APPROX( sq_m3 = v1.asDiagonal() + v2.asDiagonal(), sq_m1 + sq_m2);
+  VERIFY_IS_APPROX( sq_m3 = v1.asDiagonal() - v2.asDiagonal(), sq_m1 - sq_m2);
+  VERIFY_IS_APPROX( sq_m3 = v1.asDiagonal() - 2*v2.asDiagonal() + v1.asDiagonal(), sq_m1 - 2*sq_m2 + sq_m1);
+
+  // Zero and Identity
+  LeftDiagonalMatrix zero = LeftDiagonalMatrix::Zero(rows);
+  LeftDiagonalMatrix identity = LeftDiagonalMatrix::Identity(rows);
+  VERIFY_IS_APPROX(identity.diagonal().sum(), Scalar(rows));
+  VERIFY_IS_APPROX(zero.diagonal().sum(), Scalar(0));
+  VERIFY_IS_APPROX((zero + 2 * LeftDiagonalMatrix::Identity(rows)).diagonal().sum(), Scalar(2 * rows));
+}
+
+template<typename MatrixType> void as_scalar_product(const MatrixType& m)
+{
+  typedef typename MatrixType::Scalar Scalar;
+  typedef Matrix<Scalar, MatrixType::RowsAtCompileTime, 1> VectorType;
+  typedef Matrix<Scalar, Dynamic, Dynamic> DynMatrixType;
+  typedef Matrix<Scalar, Dynamic, 1> DynVectorType;
+  typedef Matrix<Scalar, 1, Dynamic> DynRowVectorType;
+
+  Index rows = m.rows();
+  Index depth = internal::random<Index>(1,EIGEN_TEST_MAX_SIZE);
+
+  VectorType v1 = VectorType::Random(rows);  
+  DynVectorType     dv1  = DynVectorType::Random(depth);
+  DynRowVectorType  drv1 = DynRowVectorType::Random(depth);
+  DynMatrixType     dm1  = dv1;
+  DynMatrixType     drm1 = drv1;
+  
+  Scalar s = v1(0);
+
+  VERIFY_IS_APPROX( v1.asDiagonal() * drv1, s*drv1 );
+  VERIFY_IS_APPROX( dv1 * v1.asDiagonal(), dv1*s );
+
+  VERIFY_IS_APPROX( v1.asDiagonal() * drm1, s*drm1 );
+  VERIFY_IS_APPROX( dm1 * v1.asDiagonal(), dm1*s );
 }
 
 template<int>
@@ -112,18 +177,23 @@ void bug987()
   VERIFY_IS_APPROX(( res1 = points.topLeftCorner<2,2>()*diag.asDiagonal()) , res2 = tmp2*diag.asDiagonal() );
 }
 
-void test_diagonalmatrices()
+EIGEN_DECLARE_TEST(diagonalmatrices)
 {
   for(int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1( diagonalmatrices(Matrix<float, 1, 1>()) );
+    CALL_SUBTEST_1( as_scalar_product(Matrix<float, 1, 1>()) );
+
     CALL_SUBTEST_2( diagonalmatrices(Matrix3f()) );
     CALL_SUBTEST_3( diagonalmatrices(Matrix<double,3,3,RowMajor>()) );
     CALL_SUBTEST_4( diagonalmatrices(Matrix4d()) );
     CALL_SUBTEST_5( diagonalmatrices(Matrix<float,4,4,RowMajor>()) );
     CALL_SUBTEST_6( diagonalmatrices(MatrixXcf(internal::random<int>(1,EIGEN_TEST_MAX_SIZE), internal::random<int>(1,EIGEN_TEST_MAX_SIZE))) );
+    CALL_SUBTEST_6( as_scalar_product(MatrixXcf(1,1)) );
     CALL_SUBTEST_7( diagonalmatrices(MatrixXi(internal::random<int>(1,EIGEN_TEST_MAX_SIZE), internal::random<int>(1,EIGEN_TEST_MAX_SIZE))) );
     CALL_SUBTEST_8( diagonalmatrices(Matrix<double,Dynamic,Dynamic,RowMajor>(internal::random<int>(1,EIGEN_TEST_MAX_SIZE), internal::random<int>(1,EIGEN_TEST_MAX_SIZE))) );
     CALL_SUBTEST_9( diagonalmatrices(MatrixXf(internal::random<int>(1,EIGEN_TEST_MAX_SIZE), internal::random<int>(1,EIGEN_TEST_MAX_SIZE))) );
+    CALL_SUBTEST_9( diagonalmatrices(MatrixXf(1,1)) );
+    CALL_SUBTEST_9( as_scalar_product(MatrixXf(1,1)) );
   }
   CALL_SUBTEST_10( bug987<0>() );
 }

@@ -10,6 +10,8 @@
 #ifndef EIGEN_POLYNOMIAL_SOLVER_H
 #define EIGEN_POLYNOMIAL_SOLVER_H
 
+#include "./InternalHeaderCheck.h"
+
 namespace Eigen { 
 
 /** \ingroup Polynomials_Module
@@ -25,16 +27,16 @@ namespace Eigen {
  * It stores the set of roots as a vector of complexes.
  *
  */
-template< typename _Scalar, int _Deg >
+template< typename Scalar_, int Deg_ >
 class PolynomialSolverBase
 {
   public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF_VECTORIZABLE_FIXED_SIZE(_Scalar,_Deg==Dynamic ? Dynamic : _Deg)
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF_VECTORIZABLE_FIXED_SIZE(Scalar_,Deg_==Dynamic ? Dynamic : Deg_)
 
-    typedef _Scalar                             Scalar;
+    typedef Scalar_                             Scalar;
     typedef typename NumTraits<Scalar>::Real    RealScalar;
     typedef std::complex<RealScalar>            RootType;
-    typedef Matrix<RootType,_Deg,1>             RootsType;
+    typedef Matrix<RootType,Deg_,1>             RootsType;
 
     typedef DenseIndex Index;
 
@@ -59,7 +61,7 @@ class PolynomialSolverBase
      * i.e. the real part of the complex roots that have an imaginary part which
      * absolute value is smaller than absImaginaryThreshold.
      * absImaginaryThreshold takes the dummy_precision associated
-     * with the _Scalar template parameter of the PolynomialSolver class as the default value.
+     * with the Scalar_ template parameter of the PolynomialSolver class as the default value.
      *
      * \param[out] bi_seq : the back insertion sequence (stl concept)
      * \param[in]  absImaginaryThreshold : the maximum bound of the imaginary part of a complex
@@ -99,7 +101,7 @@ class PolynomialSolverBase
      */
     inline const RootType& greatestRoot() const
     {
-      std::greater<Scalar> greater;
+      std::greater<RealScalar> greater;
       return selectComplexRoot_withRespectToNorm( greater );
     }
 
@@ -108,7 +110,7 @@ class PolynomialSolverBase
      */
     inline const RootType& smallestRoot() const
     {
-      std::less<Scalar> less;
+      std::less<RealScalar> less;
       return selectComplexRoot_withRespectToNorm( less );
     }
 
@@ -126,7 +128,7 @@ class PolynomialSolverBase
 
       for( Index i=0; i<m_roots.size(); ++i )
       {
-        if( abs( m_roots[i].imag() ) < absImaginaryThreshold )
+        if( abs( m_roots[i].imag() ) <= absImaginaryThreshold )
         {
           if( !hasArealRoot )
           {
@@ -144,10 +146,10 @@ class PolynomialSolverBase
             }
           }
         }
-        else
+        else if(!hasArealRoot)
         {
           if( abs( m_roots[i].imag() ) < abs( m_roots[res].imag() ) ){
-            res = i; }
+            res = i;}
         }
       }
       return numext::real_ref(m_roots[res]);
@@ -167,7 +169,7 @@ class PolynomialSolverBase
 
       for( Index i=0; i<m_roots.size(); ++i )
       {
-        if( abs( m_roots[i].imag() ) < absImaginaryThreshold )
+        if( abs( m_roots[i].imag() ) <= absImaginaryThreshold )
         {
           if( !hasArealRoot )
           {
@@ -200,7 +202,7 @@ class PolynomialSolverBase
      * A real root is defined as the real part of a complex root with absolute imaginary
      * part smallest than absImaginaryThreshold.
      * absImaginaryThreshold takes the dummy_precision associated
-     * with the _Scalar template parameter of the PolynomialSolver class as the default value.
+     * with the Scalar_ template parameter of the PolynomialSolver class as the default value.
      * If no real root is found the boolean hasArealRoot is set to false and the real part of
      * the root with smallest absolute imaginary part is returned instead.
      *
@@ -213,7 +215,7 @@ class PolynomialSolverBase
         bool& hasArealRoot,
         const RealScalar& absImaginaryThreshold = NumTraits<Scalar>::dummy_precision() ) const
     {
-      std::greater<Scalar> greater;
+      std::greater<RealScalar> greater;
       return selectRealRoot_withRespectToAbsRealPart( greater, hasArealRoot, absImaginaryThreshold );
     }
 
@@ -223,7 +225,7 @@ class PolynomialSolverBase
      * A real root is defined as the real part of a complex root with absolute imaginary
      * part smallest than absImaginaryThreshold.
      * absImaginaryThreshold takes the dummy_precision associated
-     * with the _Scalar template parameter of the PolynomialSolver class as the default value.
+     * with the Scalar_ template parameter of the PolynomialSolver class as the default value.
      * If no real root is found the boolean hasArealRoot is set to false and the real part of
      * the root with smallest absolute imaginary part is returned instead.
      *
@@ -236,7 +238,7 @@ class PolynomialSolverBase
         bool& hasArealRoot,
         const RealScalar& absImaginaryThreshold = NumTraits<Scalar>::dummy_precision() ) const
     {
-      std::less<Scalar> less;
+      std::less<RealScalar> less;
       return selectRealRoot_withRespectToAbsRealPart( less, hasArealRoot, absImaginaryThreshold );
     }
 
@@ -246,7 +248,7 @@ class PolynomialSolverBase
      * A real root is defined as the real part of a complex root with absolute imaginary
      * part smallest than absImaginaryThreshold.
      * absImaginaryThreshold takes the dummy_precision associated
-     * with the _Scalar template parameter of the PolynomialSolver class as the default value.
+     * with the Scalar_ template parameter of the PolynomialSolver class as the default value.
      * If no real root is found the boolean hasArealRoot is set to false and the real part of
      * the root with smallest absolute imaginary part is returned instead.
      *
@@ -259,7 +261,7 @@ class PolynomialSolverBase
         bool& hasArealRoot,
         const RealScalar& absImaginaryThreshold = NumTraits<Scalar>::dummy_precision() ) const
     {
-      std::greater<Scalar> greater;
+      std::greater<RealScalar> greater;
       return selectRealRoot_withRespectToRealPart( greater, hasArealRoot, absImaginaryThreshold );
     }
 
@@ -269,7 +271,7 @@ class PolynomialSolverBase
      * A real root is defined as the real part of a complex root with absolute imaginary
      * part smallest than absImaginaryThreshold.
      * absImaginaryThreshold takes the dummy_precision associated
-     * with the _Scalar template parameter of the PolynomialSolver class as the default value.
+     * with the Scalar_ template parameter of the PolynomialSolver class as the default value.
      * If no real root is found the boolean hasArealRoot is set to false and the real part of
      * the root with smallest absolute imaginary part is returned instead.
      *
@@ -282,7 +284,7 @@ class PolynomialSolverBase
         bool& hasArealRoot,
         const RealScalar& absImaginaryThreshold = NumTraits<Scalar>::dummy_precision() ) const
     {
-      std::less<Scalar> less;
+      std::less<RealScalar> less;
       return selectRealRoot_withRespectToRealPart( less, hasArealRoot, absImaginaryThreshold );
     }
 
@@ -306,9 +308,9 @@ class PolynomialSolverBase
   *
   * Computes the complex roots of a real polynomial.
   *
-  * \param _Scalar the scalar type, i.e., the type of the polynomial coefficients
-  * \param _Deg the degree of the polynomial, can be a compile time value or Dynamic.
-  *             Notice that the number of polynomial coefficients is _Deg+1.
+  * \param Scalar_ the scalar type, i.e., the type of the polynomial coefficients
+  * \param Deg_ the degree of the polynomial, can be a compile time value or Dynamic.
+  *             Notice that the number of polynomial coefficients is Deg_+1.
   *
   * This class implements a polynomial solver and provides convenient methods such as
   * - real roots,
@@ -327,17 +329,20 @@ class PolynomialSolverBase
   * However, almost always, correct accuracy is reached even in these cases for 64bit
   * (double) floating types and small polynomial degree (<20).
   */
-template< typename _Scalar, int _Deg >
-class PolynomialSolver : public PolynomialSolverBase<_Scalar,_Deg>
+template<typename Scalar_, int Deg_>
+class PolynomialSolver : public PolynomialSolverBase<Scalar_,Deg_>
 {
   public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF_VECTORIZABLE_FIXED_SIZE(_Scalar,_Deg==Dynamic ? Dynamic : _Deg)
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF_VECTORIZABLE_FIXED_SIZE(Scalar_,Deg_==Dynamic ? Dynamic : Deg_)
 
-    typedef PolynomialSolverBase<_Scalar,_Deg>    PS_Base;
+    typedef PolynomialSolverBase<Scalar_,Deg_>    PS_Base;
     EIGEN_POLYNOMIAL_SOLVER_BASE_INHERITED_TYPES( PS_Base )
 
-    typedef Matrix<Scalar,_Deg,_Deg>                 CompanionMatrixType;
-    typedef EigenSolver<CompanionMatrixType>         EigenSolverType;
+    typedef Matrix<Scalar,Deg_,Deg_>                 CompanionMatrixType;
+    typedef std::conditional_t<NumTraits<Scalar>::IsComplex,
+                                    ComplexEigenSolver<CompanionMatrixType>,
+                                    EigenSolver<CompanionMatrixType> > EigenSolverType;
+    typedef std::conditional_t<NumTraits<Scalar>::IsComplex, Scalar, std::complex<Scalar> > ComplexScalar;
 
   public:
     /** Computes the complex roots of a new polynomial. */
@@ -348,10 +353,29 @@ class PolynomialSolver : public PolynomialSolverBase<_Scalar,_Deg>
       eigen_assert( poly.size() > 1 );
       if(poly.size() >  2 )
       {
-        internal::companion<Scalar,_Deg> companion( poly );
+        internal::companion<Scalar,Deg_> companion( poly );
         companion.balance();
         m_eigenSolver.compute( companion.denseMatrix() );
         m_roots = m_eigenSolver.eigenvalues();
+        // cleanup noise in imaginary part of real roots:
+        // if the imaginary part is rather small compared to the real part
+        // and that cancelling the imaginary part yield a smaller evaluation,
+        // then it's safe to keep the real part only.
+        RealScalar coarse_prec = RealScalar(std::pow(4,poly.size()+1))*NumTraits<RealScalar>::epsilon();
+        for(Index i = 0; i<m_roots.size(); ++i)
+        {
+          if( internal::isMuchSmallerThan(numext::abs(numext::imag(m_roots[i])),
+                                          numext::abs(numext::real(m_roots[i])),
+                                          coarse_prec) )
+          {
+            ComplexScalar as_real_root = ComplexScalar(numext::real(m_roots[i]));
+            if(    numext::abs(poly_eval(poly, as_real_root))
+                <= numext::abs(poly_eval(poly, m_roots[i])))
+            {
+              m_roots[i] = as_real_root;
+            }
+          }
+        }
       }
       else if(poly.size () == 2)
       {
@@ -373,11 +397,11 @@ class PolynomialSolver : public PolynomialSolverBase<_Scalar,_Deg>
 };
 
 
-template< typename _Scalar >
-class PolynomialSolver<_Scalar,1> : public PolynomialSolverBase<_Scalar,1>
+template< typename Scalar_ >
+class PolynomialSolver<Scalar_,1> : public PolynomialSolverBase<Scalar_,1>
 {
   public:
-    typedef PolynomialSolverBase<_Scalar,1>    PS_Base;
+    typedef PolynomialSolverBase<Scalar_,1>    PS_Base;
     EIGEN_POLYNOMIAL_SOLVER_BASE_INHERITED_TYPES( PS_Base )
 
   public:

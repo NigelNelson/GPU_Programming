@@ -5,6 +5,7 @@ function generate_autotoc() {
   if(headers.length > 1) {
     var toc = $("#side-nav").append('<div id="nav-toc" class="toc"><h3>Table of contents</h3></div>');
     toc = $("#nav-toc");
+    var footer  = $("#nav-path");
     var footerHeight = footer.height();
     toc = toc.append('<ul></ul>');
     toc = toc.find('ul');
@@ -61,17 +62,161 @@ function getNode(o, po)
   }
 }
 
-// Overloaded to adjust the size of the navtree wrt the toc
-function resizeHeight() 
+/*
+ @licstart  The following is the entire license notice for the JavaScript code in this file.
+
+ The MIT License (MIT)
+
+ Copyright (C) 1997-2020 by Dimitri van Heesch
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+ and associated documentation files (the "Software"), to deal in the Software without restriction,
+ including without limitation the rights to use, copy, modify, merge, publish, distribute,
+ sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in all copies or
+ substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+ BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+ @licend  The above is the entire license notice for the JavaScript code in this file
+ */
+// We need to override entire resizable just so we can change the height to account for the TOC.
+function initResizable()
 {
-  var toc = $("#nav-toc");
-  var tocHeight = toc.height();  // <- we added this line
-  var headerHeight = header.height();
-  var footerHeight = footer.height();
-  var windowHeight = $(window).height() - headerHeight - footerHeight;
-  content.css({height:windowHeight + "px"});
-  navtree.css({height:(windowHeight-tocHeight) + "px"}); // <- we modified this line
-  sidenav.css({height:(windowHeight) + "px",top: headerHeight+"px"});
+  var cookie_namespace = 'doxygen';
+  var sidenav,navtree,content,header,collapsed,collapsedWidth=0,barWidth=6,desktop_vp=768,titleHeight;
+
+  function readCookie(cookie)
+  {
+    var myCookie = cookie_namespace+"_"+cookie+"=";
+    if (document.cookie) {
+      var index = document.cookie.indexOf(myCookie);
+      if (index != -1) {
+        var valStart = index + myCookie.length;
+        var valEnd = document.cookie.indexOf(";", valStart);
+        if (valEnd == -1) {
+          valEnd = document.cookie.length;
+        }
+        var val = document.cookie.substring(valStart, valEnd);
+        return val;
+      }
+    }
+    return 0;
+  }
+
+  function writeCookie(cookie, val, expiration)
+  {
+    if (val==undefined) return;
+    if (expiration == null) {
+      var date = new Date();
+      date.setTime(date.getTime()+(10*365*24*60*60*1000)); // default expiration is one week
+      expiration = date.toGMTString();
+    }
+    document.cookie = cookie_namespace + "_" + cookie + "=" + val + "; expires=" + expiration+"; path=/";
+  }
+
+  function resizeWidth()
+  {
+    var windowWidth = $(window).width() + "px";
+    var sidenavWidth = $(sidenav).outerWidth();
+    content.css({marginLeft:parseInt(sidenavWidth)+"px"});
+    writeCookie('width',sidenavWidth-barWidth, null);
+  }
+
+  function restoreWidth(navWidth)
+  {
+    var windowWidth = $(window).width() + "px";
+    content.css({marginLeft:parseInt(navWidth)+barWidth+"px"});
+    sidenav.css({width:navWidth + "px"});
+  }
+
+  function resizeHeight()
+  {  
+    var headerHeight = header.outerHeight();
+    var footerHeight = footer.outerHeight();
+    var windowHeight = $(window).height() - headerHeight - footerHeight;
+    //==========================================================================
+    // MODIFICATION:
+    // This small section is the only portion modified within initResizable().
+    // The rest is copy-pasted from the doxygen-generated resize.js.
+    //
+    // Adjust nav height to make room for TOC.
+    var toc = $("#nav-toc");
+    var tocHeight = toc.height();
+    var navHeight = windowHeight;
+    // tocHeight is not always defined (e.g. if empty)
+    if (tocHeight) {
+      navHeight = windowHeight - tocHeight;
+    }
+   //==========================================================================
+    
+    content.css({height:windowHeight + "px"});
+    navtree.css({height:navHeight + "px"});
+    sidenav.css({height:windowHeight + "px"});
+    
+    var width=$(window).width();
+    if (width!=collapsedWidth) {
+      if (width<desktop_vp && collapsedWidth>=desktop_vp) {
+        if (!collapsed) {
+          collapseExpand();
+        }
+      } else if (width>desktop_vp && collapsedWidth<desktop_vp) {
+        if (collapsed) {
+          collapseExpand();
+        }
+      }
+      collapsedWidth=width;
+    }
+    if (location.hash.slice(1)) {
+      (document.getElementById(location.hash.slice(1))||document.body).scrollIntoView();
+    }
+  }
+
+  function collapseExpand()
+  {
+    if (sidenav.width()>0) {
+      restoreWidth(0);
+      collapsed=true;
+    }
+    else {
+      var width = readCookie('width');
+      if (width>200 && width<$(window).width()) { restoreWidth(width); } else { restoreWidth(200); }
+      collapsed=false;
+    }
+  }
+  header  = $("#top");
+  sidenav = $("#side-nav");
+  content = $("#doc-content");
+  navtree = $("#nav-tree");
+  footer  = $("#nav-path");
+
+  $(".side-nav-resizable").resizable({resize: function(e, ui) { resizeWidth(); } });
+  $(sidenav).resizable({ minWidth: 0 });
+  $(window).resize(function() { resizeHeight(); });
+  var device = navigator.userAgent.toLowerCase();
+  var touch_device = device.match(/(iphone|ipod|ipad|android)/);
+  if (touch_device) { /* wider split bar for touch only devices */
+    $(sidenav).css({ paddingRight:'20px' });
+    $('.ui-resizable-e').css({ width:'20px' });
+    $('#nav-sync').css({ right:'34px' });
+    barWidth=20;
+  }
+  var width = readCookie('width');
+  if (width) { restoreWidth(width); } else { resizeWidth(); }
+  resizeHeight();
+  var url = location.href;
+  var i=url.indexOf("#");
+  if (i>=0) window.location.hash=url.substr(i);
+  var _preventDefault = function(evt) { evt.preventDefault(); };
+  $("#splitbar").bind("dragstart", _preventDefault).bind("selectstart", _preventDefault);
+  $(".ui-resizable-handle").dblclick(collapseExpand);
+  $(window).on('load',resizeHeight);
 }
 
 // Overloaded to save the root node into global_navtree_object
@@ -131,7 +276,7 @@ function initNavTree(toroot,relpath)
      }
   })
 
-  $(window).load(showRoot);
+  $(window).on("load", showRoot);
 }
 
 // return false if the the node has no children at all, or has only section/subsection children
@@ -155,19 +300,18 @@ function createIndent(o,domNode,node,level)
   var level=-2; // <- we replaced level=-1 by level=-2
   var n = node;
   while (n.parentNode) { level++; n=n.parentNode; }
-  var imgNode = document.createElement("img");
-  imgNode.style.paddingLeft=(16*(level)).toString()+'px';
-  imgNode.width  = 16;
-  imgNode.height = 22;
-  imgNode.border = 0;
   if (checkChildrenData(node)) { // <- we modified this line to use checkChildrenData(node) instead of node.childrenData
+    var imgNode = document.createElement("span");
+    imgNode.className = 'arrow';
+    imgNode.style.paddingLeft=(16*level).toString()+'px';
+    imgNode.innerHTML=arrowRight;
     node.plus_img = imgNode;
     node.expandToggle = document.createElement("a");
     node.expandToggle.href = "javascript:void(0)";
     node.expandToggle.onclick = function() {
       if (node.expanded) {
         $(node.getChildrenUL()).slideUp("fast");
-        node.plus_img.src = node.relpath+"ftv2pnode.png";
+        node.plus_img.innerHTML=arrowRight;
         node.expanded = false;
       } else {
         expandNode(o, node, false, false);
@@ -175,11 +319,13 @@ function createIndent(o,domNode,node,level)
     }
     node.expandToggle.appendChild(imgNode);
     domNode.appendChild(node.expandToggle);
-    imgNode.src = node.relpath+"ftv2pnode.png";
   } else {
-    imgNode.src = node.relpath+"ftv2node.png";
-    domNode.appendChild(imgNode);
-  } 
+    var span = document.createElement("span");
+    span.className = 'arrow';
+    span.style.width   = 16*(level+1)+'px';
+    span.innerHTML = '&#160;';
+    domNode.appendChild(span);
+  }
 }
 
 // Overloaded to automatically expand the selected node
@@ -233,8 +379,4 @@ $(document).ready(function() {
       setTimeout(arguments.callee, 10);
     }
   })();
-});
-
-$(window).load(function() {
-  resizeHeight();
 });

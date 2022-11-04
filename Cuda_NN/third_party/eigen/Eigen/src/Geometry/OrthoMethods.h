@@ -11,6 +11,8 @@
 #ifndef EIGEN_ORTHOMETHODS_H
 #define EIGEN_ORTHOMETHODS_H
 
+#include "./InternalHeaderCheck.h"
+
 namespace Eigen { 
 
 /** \geometry_module \ingroup Geometry_Module
@@ -27,9 +29,10 @@ namespace Eigen {
 template<typename Derived>
 template<typename OtherDerived>
 #ifndef EIGEN_PARSED_BY_DOXYGEN
-EIGEN_DEVICE_FUNC inline typename MatrixBase<Derived>::template cross_product_return_type<OtherDerived>::type
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE
+typename MatrixBase<Derived>::template cross_product_return_type<OtherDerived>::type
 #else
-inline typename MatrixBase<Derived>::PlainObject
+typename MatrixBase<Derived>::PlainObject
 #endif
 MatrixBase<Derived>::cross(const MatrixBase<OtherDerived>& other) const
 {
@@ -90,8 +93,8 @@ MatrixBase<Derived>::cross3(const MatrixBase<OtherDerived>& other) const
   OtherDerivedNested rhs(other.derived());
 
   return internal::cross3_impl<Architecture::Target,
-                        typename internal::remove_all<DerivedNested>::type,
-                        typename internal::remove_all<OtherDerivedNested>::type>::run(lhs,rhs);
+                        internal::remove_all_t<DerivedNested>,
+                        internal::remove_all_t<OtherDerivedNested>>::run(lhs,rhs);
 }
 
 /** \geometry_module \ingroup Geometry_Module

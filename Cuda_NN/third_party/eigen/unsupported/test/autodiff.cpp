@@ -29,10 +29,10 @@ EIGEN_DONT_INLINE typename Vector::Scalar foo(const Vector& p)
   return (p-Vector(Scalar(-1),Scalar(1.))).norm() + (p.array() * p.array()).sum() + p.dot(p);
 }
 
-template<typename _Scalar, int NX=Dynamic, int NY=Dynamic>
+template<typename Scalar_, int NX=Dynamic, int NY=Dynamic>
 struct TestFunc1
 {
-  typedef _Scalar Scalar;
+  typedef Scalar_ Scalar;
   enum {
     InputsAtCompileTime = NX,
     ValuesAtCompileTime = NY
@@ -44,7 +44,7 @@ struct TestFunc1
   int m_inputs, m_values;
 
   TestFunc1() : m_inputs(InputsAtCompileTime), m_values(ValuesAtCompileTime) {}
-  TestFunc1(int inputs, int values) : m_inputs(inputs), m_values(values) {}
+  TestFunc1(int inputs_, int values_) : m_inputs(inputs_), m_values(values_) {}
 
   int inputs() const { return m_inputs; }
   int values() const { return m_values; }
@@ -106,7 +106,6 @@ struct TestFunc1
 };
 
 
-#if EIGEN_HAS_VARIADIC_TEMPLATES
 /* Test functor for the C++11 features. */
 template <typename Scalar>
 struct integratorFunctor
@@ -186,7 +185,6 @@ template<typename Func> void forward_jacobian_cpp11(const Func& f)
     VERIFY_IS_APPROX(y, yref);
     VERIFY_IS_APPROX(j, jref);
 }
-#endif
 
 template<typename Func> void forward_jacobian(const Func& f)
 {
@@ -247,9 +245,7 @@ void test_autodiff_jacobian()
   CALL_SUBTEST(( forward_jacobian(TestFunc1<double,3,2>()) ));
   CALL_SUBTEST(( forward_jacobian(TestFunc1<double,3,3>()) ));
   CALL_SUBTEST(( forward_jacobian(TestFunc1<double>(3,3)) ));
-#if EIGEN_HAS_VARIADIC_TEMPLATES
   CALL_SUBTEST(( forward_jacobian_cpp11(integratorFunctor<double>(10)) ));
-#endif
 }
 
 
@@ -306,6 +302,8 @@ double bug_1222() {
   return denom.value();
 }
 
+#ifdef EIGEN_TEST_PART_5
+
 double bug_1223() {
   using std::min;
   typedef Eigen::AutoDiffScalar<Eigen::Vector3d> AD;
@@ -326,8 +324,8 @@ double bug_1223() {
 
 // regression test for some compilation issues with specializations of ScalarBinaryOpTraits
 void bug_1260() {
-  Matrix4d A;
-  Vector4d v;
+  Matrix4d A = Matrix4d::Ones();
+  Vector4d v = Vector4d::Ones();
   A*v;
 }
 
@@ -336,7 +334,7 @@ double bug_1261() {
   typedef AutoDiffScalar<Matrix2d> AD;
   typedef Matrix<AD,2,1> VectorAD;
 
-  VectorAD v;
+  VectorAD v(0.,0.);
   const AD maxVal = v.maxCoeff();
   const AD minVal = v.minCoeff();
   return maxVal.value() + minVal.value();
@@ -344,13 +342,30 @@ double bug_1261() {
 
 double bug_1264() {
   typedef AutoDiffScalar<Vector2d> AD;
-  const AD s;
-  const Matrix<AD, 3, 1> v1;
+  const AD s = 0.;
+  const Matrix<AD, 3, 1> v1(0.,0.,0.);
   const Matrix<AD, 3, 1> v2 = (s + 3.0) * v1;
   return v2(0).value();
 }
 
-void test_autodiff()
+// check with expressions on constants
+double bug_1281() {
+  int n = 2;
+  typedef AutoDiffScalar<VectorXd> AD;
+  const AD c = 1.;
+  AD x0(2,n,0);
+  AD y1 = (AD(c)+AD(c))*x0;
+  y1 = x0 * (AD(c)+AD(c));
+  AD y2 = (-AD(c))+x0;
+  y2 = x0+(-AD(c));
+  AD y3 = (AD(c)*(-AD(c))+AD(c))*x0;
+  y3 = x0 * (AD(c)*(-AD(c))+AD(c));
+  return (y1+y2+y3).value();
+}
+
+#endif
+
+EIGEN_DECLARE_TEST(autodiff)
 {
   for(int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1( test_autodiff_scalar<1>() );
@@ -359,9 +374,10 @@ void test_autodiff()
     CALL_SUBTEST_4( test_autodiff_hessian<1>() );
   }
 
-  bug_1222();
-  bug_1223();
-  bug_1260();
-  bug_1261();
+  CALL_SUBTEST_5( bug_1222() );
+  CALL_SUBTEST_5( bug_1223() );
+  CALL_SUBTEST_5( bug_1260() );
+  CALL_SUBTEST_5( bug_1261() );
+  CALL_SUBTEST_5( bug_1281() );
 }
 

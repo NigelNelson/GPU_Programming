@@ -17,6 +17,17 @@ bool areNotApprox(const MatrixBase<Derived1>& m1, const MatrixBase<Derived2>& m2
                           * (std::max)(m1.cwiseAbs2().maxCoeff(), m2.cwiseAbs2().maxCoeff()));
 }
 
+template <typename LhsType, typename RhsType>
+std::enable_if_t<RhsType::SizeAtCompileTime==Dynamic,void>
+check_mismatched_product(LhsType& lhs, const RhsType& rhs) {
+  VERIFY_RAISES_ASSERT(lhs = rhs*rhs);
+}
+
+template <typename LhsType, typename RhsType>
+std::enable_if_t<RhsType::SizeAtCompileTime!=Dynamic,void>
+check_mismatched_product(LhsType& /*unused*/, const RhsType& /*unused*/) {
+}
+
 template<typename MatrixType> void product(const MatrixType& m)
 {
   /* this test covers the following files:
@@ -77,8 +88,9 @@ template<typename MatrixType> void product(const MatrixType& m)
   // again, test operator() to check const-qualification
   VERIFY_IS_APPROX(MatrixType::Identity(rows, cols)(r,c), static_cast<Scalar>(r==c));
 
-  if (rows!=cols)
-     VERIFY_RAISES_ASSERT(m3 = m1*m1);
+  if (rows!=cols) {
+    check_mismatched_product(m3, m1);
+  }
 
   // test the previous tests were not screwed up because operator* returns 0
   // (we use the more accurate default epsilon)
@@ -110,6 +122,17 @@ template<typename MatrixType> void product(const MatrixType& m)
   vcres = vc2;
   vcres.noalias() -= m1.transpose() * v1;
   VERIFY_IS_APPROX(vcres, vc2 - m1.transpose() * v1);
+
+  // test scaled products
+  res = square;
+  res.noalias() = s1 * m1 * m2.transpose();
+  VERIFY_IS_APPROX(res, ((s1*m1).eval() * m2.transpose()));
+  res = square;
+  res.noalias() += s1 * m1 * m2.transpose();
+  VERIFY_IS_APPROX(res, square + ((s1*m1).eval() * m2.transpose()));
+  res = square;
+  res.noalias() -= s1 * m1 * m2.transpose();
+  VERIFY_IS_APPROX(res, square - ((s1*m1).eval() * m2.transpose()));
 
   // test d ?= a+b*c rules
   res.noalias() = square + m1 * m2.transpose();
@@ -216,6 +239,8 @@ template<typename MatrixType> void product(const MatrixType& m)
     // CwiseBinaryOp
     VERIFY_IS_APPROX(x = y + A*x, A*z);
     x = z;
+    VERIFY_IS_APPROX(x = y - A*x, A*(-z));
+    x = z;
     // CwiseUnaryOp
     VERIFY_IS_APPROX(x = Scalar(1.)*(A*x), A*z);
   }
@@ -226,6 +251,21 @@ template<typename MatrixType> void product(const MatrixType& m)
     VERIFY_IS_APPROX(square * (-(square*square)), -square * square * square);
     VERIFY_IS_APPROX(square * (s1*(square*square)), s1 * square * square * square);
     VERIFY_IS_APPROX(square * (square*square).conjugate(), square * square.conjugate() * square.conjugate());
+  }
+
+  // destination with a non-default inner-stride
+  // see bug 1741
+  if(!MatrixType::IsRowMajor)
+  {
+    typedef Matrix<Scalar,Dynamic,Dynamic> MatrixX;
+    MatrixX buffer(2*rows,2*rows);
+    Map<RowSquareMatrixType,0,Stride<Dynamic,2> > map1(buffer.data(),rows,rows,Stride<Dynamic,2>(2*rows,2));
+    buffer.setZero();
+    VERIFY_IS_APPROX(map1 = m1 * m2.transpose(), (m1 * m2.transpose()).eval());
+    buffer.setZero();
+    VERIFY_IS_APPROX(map1.noalias() = m1 * m2.transpose(), (m1 * m2.transpose()).eval());
+    buffer.setZero();
+    VERIFY_IS_APPROX(map1.noalias() += m1 * m2.transpose(), (m1 * m2.transpose()).eval());
   }
 
 }

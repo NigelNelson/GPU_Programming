@@ -15,13 +15,17 @@
 #define ALIGNMENT 1
 #endif
 
+typedef Matrix<float,16,1> Vector16f;
 typedef Matrix<float,8,1> Vector8f;
 
 void check_handmade_aligned_malloc()
 {
+  // Hand-make alignment needs at least sizeof(void*) to store the offset.
+  constexpr int alignment = (std::max<int>)(EIGEN_DEFAULT_ALIGN_BYTES, sizeof(void*));
+  
   for(int i = 1; i < 1000; i++)
   {
-    char *p = (char*)internal::handmade_aligned_malloc(i);
+    char *p = (char*)internal::handmade_aligned_malloc(i, alignment);
     VERIFY(internal::UIntPtr(p)%ALIGNMENT==0);
     // if the buffer is wrongly allocated this will give a bad write --> check with valgrind
     for(int j = 0; j < i; j++) p[j]=0;
@@ -70,7 +74,7 @@ struct MyStruct
 {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   char dummychar;
-  Vector8f avec;
+  Vector16f avec;
 };
 
 class MyClassA
@@ -78,7 +82,7 @@ class MyClassA
   public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     char dummychar;
-    Vector8f avec;
+    Vector16f avec;
 };
 
 template<typename T> void check_dynaligned()
@@ -106,7 +110,7 @@ template<typename T> void check_custom_new_delete()
     delete[] t;
   }
   
-#if EIGEN_MAX_ALIGN_BYTES>0
+#if EIGEN_MAX_ALIGN_BYTES>0 && (!EIGEN_HAS_CXX17_OVERALIGN)
   {
     T* t = static_cast<T *>((T::operator new)(sizeof(T)));
     (T::operator delete)(t, sizeof(T));
@@ -119,7 +123,7 @@ template<typename T> void check_custom_new_delete()
 #endif
 }
 
-void test_dynalloc()
+EIGEN_DECLARE_TEST(dynalloc)
 {
   // low level dynamic memory allocation
   CALL_SUBTEST(check_handmade_aligned_malloc());
@@ -145,6 +149,7 @@ void test_dynalloc()
     CALL_SUBTEST(check_dynaligned<Vector4d>() );
     CALL_SUBTEST(check_dynaligned<Vector4i>() );
     CALL_SUBTEST(check_dynaligned<Vector8f>() );
+    CALL_SUBTEST(check_dynaligned<Vector16f>() );
   }
 
   {

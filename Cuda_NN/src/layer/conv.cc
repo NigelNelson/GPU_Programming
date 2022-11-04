@@ -6,7 +6,6 @@ void Conv::init() {
   height_out = (1 + (height_in - height_kernel + 2 * pad_h) / stride);
   width_out =   (1 + (width_in - width_kernel + 2 * pad_w) / stride);
   dim_out = height_out * width_out * channel_out;
-
   weight.resize(channel_in * height_kernel * width_kernel, channel_out);
   bias.resize(channel_out);
   grad_weight.resize(channel_in * height_kernel * width_kernel, channel_out);
@@ -59,11 +58,16 @@ void Conv::forward(const Matrix& bottom) {
     im2col(bottom.col(i), data_col);
     data_cols[i] = data_col;
     // conv by product
+    
     Matrix result = data_col * weight;  // result: (hw_out, channel_out)
     result.rowwise() += bias.transpose();
     top.col(i) = Eigen::Map<Vector>(result.data(), result.size());
   }
 }
+
+// __global__ dot_pod(const Vector& image, Matrix& data_col){
+
+// }
 
 // col2im, used for grad_bottom
 // data_col size: Matrix (hw_out, hw_kernel * channel_in)

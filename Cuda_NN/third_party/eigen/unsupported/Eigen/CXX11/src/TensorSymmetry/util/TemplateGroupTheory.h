@@ -10,6 +10,8 @@
 #ifndef EIGEN_CXX11_TENSORSYMMETRY_TEMPLATEGROUPTHEORY_H
 #define EIGEN_CXX11_TENSORSYMMETRY_TEMPLATEGROUPTHEORY_H
 
+#include "../InternalHeaderCheck.h"
+
 namespace Eigen {
 
 namespace internal {
@@ -17,7 +19,7 @@ namespace internal {
 namespace group_theory {
 
 /** \internal
-  * \file CXX11/Tensor/util/TemplateGroupTheory.h
+  * \file CXX11/src/TensorSymmetry/util/TemplateGroupTheory.h
   * This file contains C++ templates that implement group theory algorithms.
   *
   * The algorithms allow for a compile-time analysis of finite groups.
@@ -126,11 +128,11 @@ template<
 >
 struct strip_identities<Equality, id, type_list<t, ts...>>
 {
-  typedef typename conditional<
+  typedef std::conditional_t<
     Equality<id, t>::value,
     typename strip_identities<Equality, id, type_list<ts...>>::type,
     typename concat<type_list<t>, typename strip_identities<Equality, id, type_list<ts...>>::type>::type
-  >::type type;
+  > type;
   constexpr static int global_flags = Equality<id, t>::global_flags | strip_identities<Equality, id, type_list<ts...>>::global_flags;
 };
 
@@ -167,7 +169,9 @@ template<
   typename elements,
   bool dont_add_current_element   // = false
 >
-struct dimino_first_step_elements_helper :
+struct dimino_first_step_elements_helper
+#ifndef EIGEN_PARSED_BY_DOXYGEN
+  : // recursive inheritance is too difficult for Doxygen
   public dimino_first_step_elements_helper<
     Multiply,
     Equality,
@@ -187,6 +191,7 @@ template<
   typename elements
 >
 struct dimino_first_step_elements_helper<Multiply, Equality, id, g, current_element, elements, true>
+#endif // EIGEN_PARSED_BY_DOXYGEN
 {
   typedef elements type;
   constexpr static int global_flags = Equality<current_element, id>::global_flags;
@@ -241,7 +246,7 @@ struct dimino_first_step_elements
   * multiplying all elements in the given subgroup with the new
   * coset representative. Note that the first element of the
   * subgroup is always the identity element, so the first element of
-  * ther result of this template is going to be the coset
+  * the result of this template is going to be the coset
   * representative itself.
   *
   * Note that this template accepts an additional boolean parameter
@@ -634,21 +639,21 @@ struct enumerate_group_elements_noid<Multiply, Equality, id, type_list<>, initia
   * \tparam Equality      The equality check operation that checks if two group elements
   *                       are equal to another.
   * \tparam id            The identity element
-  * \tparam _generators   A list of (possibly redundant) generators of the group
+  * \tparam Generators_   A list of (possibly redundant) generators of the group
   */
 template<
   template<typename, typename> class Multiply,
   template<typename, typename> class Equality,
   typename id,
-  typename _generators
+  typename Generators_
 >
 struct enumerate_group_elements
   : public enumerate_group_elements_noid<
       Multiply,
       Equality,
       id,
-      typename strip_identities<Equality, id, _generators>::type,
-      strip_identities<Equality, id, _generators>::global_flags
+      typename strip_identities<Equality, id, Generators_>::type,
+      strip_identities<Equality, id, Generators_>::global_flags
     >
 {
 };

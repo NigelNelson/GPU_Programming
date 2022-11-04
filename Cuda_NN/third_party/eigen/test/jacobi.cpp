@@ -14,7 +14,6 @@
 template<typename MatrixType, typename JacobiScalar>
 void jacobi(const MatrixType& m = MatrixType())
 {
-  typedef typename MatrixType::Index Index;
   Index rows = m.rows();
   Index cols = m.cols();
 
@@ -58,13 +57,18 @@ void jacobi(const MatrixType& m = MatrixType())
   }
 }
 
-void test_jacobi()
+EIGEN_DECLARE_TEST(jacobi)
 {
   for(int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1(( jacobi<Matrix3f, float>() ));
     CALL_SUBTEST_2(( jacobi<Matrix4d, double>() ));
     CALL_SUBTEST_3(( jacobi<Matrix4cf, float>() ));
     CALL_SUBTEST_3(( jacobi<Matrix4cf, std::complex<float> >() ));
+
+    CALL_SUBTEST_1(( jacobi<Matrix<float, 3, 3, RowMajor>, float>() ));
+    CALL_SUBTEST_2(( jacobi<Matrix<double, 4, 4, RowMajor>, double>() ));
+    CALL_SUBTEST_3(( jacobi<Matrix<std::complex<float>, 4, 4, RowMajor>, float>() ));
+    CALL_SUBTEST_3(( jacobi<Matrix<std::complex<float>, 4, 4, RowMajor>, std::complex<float> >() ));
 
     int r = internal::random<int>(2, internal::random<int>(1,EIGEN_TEST_MAX_SIZE)/2),
         c = internal::random<int>(2, internal::random<int>(1,EIGEN_TEST_MAX_SIZE)/2);

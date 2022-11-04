@@ -13,20 +13,20 @@
 #ifndef EIGEN_PARSED_BY_DOXYGEN
 
 /** \internal the return type of conjugate() */
-typedef typename internal::conditional<NumTraits<Scalar>::IsComplex,
-                    const CwiseUnaryOp<internal::scalar_conjugate_op<Scalar>, const Derived>,
-                    const Derived&
-                  >::type ConjugateReturnType;
+typedef std::conditional_t<NumTraits<Scalar>::IsComplex,
+            const CwiseUnaryOp<internal::scalar_conjugate_op<Scalar>, const Derived>,
+            const Derived&
+          > ConjugateReturnType;
 /** \internal the return type of real() const */
-typedef typename internal::conditional<NumTraits<Scalar>::IsComplex,
-                    const CwiseUnaryOp<internal::scalar_real_op<Scalar>, const Derived>,
-                    const Derived&
-                  >::type RealReturnType;
+typedef std::conditional_t<NumTraits<Scalar>::IsComplex,
+            const CwiseUnaryOp<internal::scalar_real_op<Scalar>, const Derived>,
+            const Derived&
+          > RealReturnType;
 /** \internal the return type of real() */
-typedef typename internal::conditional<NumTraits<Scalar>::IsComplex,
-                    CwiseUnaryView<internal::scalar_real_ref_op<Scalar>, Derived>,
-                    Derived&
-                  >::type NonConstRealReturnType;
+typedef std::conditional_t<NumTraits<Scalar>::IsComplex,
+            CwiseUnaryView<internal::scalar_real_ref_op<Scalar>, Derived>,
+            Derived&
+          > NonConstRealReturnType;
 /** \internal the return type of imag() const */
 typedef CwiseUnaryOp<internal::scalar_imag_op<Scalar>, const Derived> ImagReturnType;
 /** \internal the return type of imag() */
@@ -74,6 +74,20 @@ inline ConjugateReturnType
 conjugate() const
 {
   return ConjugateReturnType(derived());
+}
+
+/// \returns an expression of the complex conjugate of \c *this if Cond==true, returns derived() otherwise.
+///
+EIGEN_DOC_UNARY_ADDONS(conjugate,complex conjugate)
+///
+/// \sa conjugate()
+template<bool Cond>
+EIGEN_DEVICE_FUNC
+inline std::conditional_t<Cond,ConjugateReturnType,const Derived&>
+conjugateIf() const
+{
+  typedef std::conditional_t<Cond,ConjugateReturnType,const Derived&> ReturnType;
+  return ReturnType(derived());
 }
 
 /// \returns a read-only expression of the real part of \c *this.

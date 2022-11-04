@@ -11,6 +11,8 @@
 #ifndef EIGEN_SPARSE_QR_H
 #define EIGEN_SPARSE_QR_H
 
+#include "./InternalHeaderCheck.h"
+
 namespace Eigen {
 
 template<typename MatrixType, typename OrderingType> class SparseQR;
@@ -41,42 +43,55 @@ namespace internal {
 /**
   * \ingroup SparseQR_Module
   * \class SparseQR
-  * \brief Sparse left-looking rank-revealing QR factorization
+  * \brief Sparse left-looking QR factorization with numerical column pivoting
   * 
-  * This class implements a left-looking rank-revealing QR decomposition 
-  * of sparse matrices. When a column has a norm less than a given tolerance
+  * This class implements a left-looking QR decomposition of sparse matrices
+  * with numerical column pivoting.
+  * When a column has a norm less than a given tolerance
   * it is implicitly permuted to the end. The QR factorization thus obtained is 
   * given by A*P = Q*R where R is upper triangular or trapezoidal. 
   * 
   * P is the column permutation which is the product of the fill-reducing and the
-  * rank-revealing permutations. Use colsPermutation() to get it.
+  * numerical permutations. Use colsPermutation() to get it.
   * 
   * Q is the orthogonal matrix represented as products of Householder reflectors. 
-  * Use matrixQ() to get an expression and matrixQ().transpose() to get the transpose.
+  * Use matrixQ() to get an expression and matrixQ().adjoint() to get the adjoint.
   * You can then apply it to a vector.
   * 
   * R is the sparse triangular or trapezoidal matrix. The later occurs when A is rank-deficient.
   * matrixR().topLeftCorner(rank(), rank()) always returns a triangular factor of full rank.
   * 
-  * \tparam _MatrixType The type of the sparse matrix A, must be a column-major SparseMatrix<>
-  * \tparam _OrderingType The fill-reducing ordering method. See the \link OrderingMethods_Module 
+  * \tparam MatrixType_ The type of the sparse matrix A, must be a column-major SparseMatrix<>
+  * \tparam OrderingType_ The fill-reducing ordering method. See the \link OrderingMethods_Module
   *  OrderingMethods \endlink module for the list of built-in and external ordering methods.
   * 
   * \implsparsesolverconcept
   *
+  * The numerical pivoting strategy and default threshold are the same as in SuiteSparse QR, and
+  * detailed in the following paper:
+  * <i>
+  * Tim Davis, "Algorithm 915, SuiteSparseQR: Multifrontal Multithreaded Rank-Revealing
+  * Sparse QR Factorization, ACM Trans. on Math. Soft. 38(1), 2011.
+  * </i>
+  * Even though it is qualified as "rank-revealing", this strategy might fail for some 
+  * rank deficient problems. When this class is used to solve linear or least-square problems
+  * it is thus strongly recommended to check the accuracy of the computed solution. If it
+  * failed, it usually helps to increase the threshold with setPivotThreshold.
+  * 
   * \warning The input sparse matrix A must be in compressed mode (see SparseMatrix::makeCompressed()).
+  * \warning For complex matrices matrixQ().transpose() will actually return the adjoint matrix.
   * 
   */
-template<typename _MatrixType, typename _OrderingType>
-class SparseQR : public SparseSolverBase<SparseQR<_MatrixType,_OrderingType> >
+template<typename MatrixType_, typename OrderingType_>
+class SparseQR : public SparseSolverBase<SparseQR<MatrixType_,OrderingType_> >
 {
   protected:
-    typedef SparseSolverBase<SparseQR<_MatrixType,_OrderingType> > Base;
+    typedef SparseSolverBase<SparseQR<MatrixType_,OrderingType_> > Base;
     using Base::m_isInitialized;
   public:
     using Base::_solve_impl;
-    typedef _MatrixType MatrixType;
-    typedef _OrderingType OrderingType;
+    typedef MatrixType_ MatrixType;
+    typedef OrderingType_ OrderingType;
     typedef typename MatrixType::Scalar Scalar;
     typedef typename MatrixType::RealScalar RealScalar;
     typedef typename MatrixType::StorageIndex StorageIndex;
@@ -196,9 +211,9 @@ class SparseQR : public SparseSolverBase<SparseQR<_MatrixType,_OrderingType> >
 
       Index rank = this->rank();
       
-      // Compute Q^T * b;
+      // Compute Q^* * b;
       typename Dest::PlainObject y, b;
-      y = this->matrixQ().transpose() * B; 
+      y = this->matrixQ().adjoint() * B;
       b = y;
       
       // Solve with the triangular matrix R
@@ -308,7 +323,7 @@ void SparseQR<MatrixType,OrderingType>::analyzePattern(const MatrixType& mat)
 {
   eigen_assert(mat.isCompressed() && "SparseQR requires a sparse matrix in compressed mode. Call .makeCompressed() before passing it to SparseQR");
   // Copy to a column major matrix if the input is rowmajor
-  typename internal::conditional<MatrixType::IsRowMajor,QRMatrixType,const MatrixType&>::type matCpy(mat);
+  std::conditional_t<MatrixType::IsRowMajor,QRMatrixType,const MatrixType&> matCpy(mat);
   // Compute the column fill reducing ordering
   OrderingType ord; 
   ord(matCpy, m_perm_c); 
@@ -330,7 +345,7 @@ void SparseQR<MatrixType,OrderingType>::analyzePattern(const MatrixType& mat)
   m_R.resize(m, n);
   m_Q.resize(m, diagSize);
   
-  // Allocate space for nonzero elements : rough estimation
+  // Allocate space for nonzero elements: rough estimation
   m_R.reserve(2*mat.nonZeros()); //FIXME Get a more accurate estimation through symbolic factorization with the etree
   m_Q.reserve(2*mat.nonZeros());
   m_hcoeffs.resize(diagSize);
@@ -604,7 +619,7 @@ struct SparseQR_QProduct : ReturnByValue<SparseQR_QProduct<SparseQRType, Derived
   // Get the references 
   SparseQR_QProduct(const SparseQRType& qr, const Derived& other, bool transpose) : 
   m_qr(qr),m_other(other),m_transpose(transpose) {}
-  inline Index rows() const { return m_transpose ? m_qr.rows() : m_qr.cols(); }
+  inline Index rows() const { return m_qr.matrixQ().rows(); }
   inline Index cols() const { return m_other.cols(); }
   
   // Assign to a vector
@@ -632,16 +647,20 @@ struct SparseQR_QProduct : ReturnByValue<SparseQR_QProduct<SparseQRType, Derived
     }
     else
     {
-      eigen_assert(m_qr.m_Q.rows() == m_other.rows() && "Non conforming object sizes");
+      eigen_assert(m_qr.matrixQ().cols() == m_other.rows() && "Non conforming object sizes");
+
+      res.conservativeResize(rows(), cols());
+
       // Compute res = Q * other column by column
       for(Index j = 0; j < res.cols(); j++)
       {
-        for (Index k = diagSize-1; k >=0; k--)
+        Index start_k = internal::is_identity<Derived>::value ? numext::mini(j,diagSize-1) : diagSize-1;
+        for (Index k = start_k; k >=0; k--)
         {
           Scalar tau = Scalar(0);
           tau = m_qr.m_Q.col(k).dot(res.col(j));
           if(tau==Scalar(0)) continue;
-          tau = tau * m_qr.m_hcoeffs(k);
+          tau = tau * numext::conj(m_qr.m_hcoeffs(k));
           res.col(j) -= tau * m_qr.m_Q.col(k);
         }
       }
@@ -650,7 +669,7 @@ struct SparseQR_QProduct : ReturnByValue<SparseQR_QProduct<SparseQRType, Derived
   
   const SparseQRType& m_qr;
   const Derived& m_other;
-  bool m_transpose;
+  bool m_transpose; // TODO this actually means adjoint
 };
 
 template<typename SparseQRType>
@@ -668,13 +687,14 @@ struct SparseQRMatrixQReturnType : public EigenBase<SparseQRMatrixQReturnType<Sp
   {
     return SparseQR_QProduct<SparseQRType,Derived>(m_qr,other.derived(),false);
   }
+  // To use for operations with the adjoint of Q
   SparseQRMatrixQTransposeReturnType<SparseQRType> adjoint() const
   {
     return SparseQRMatrixQTransposeReturnType<SparseQRType>(m_qr);
   }
   inline Index rows() const { return m_qr.rows(); }
-  inline Index cols() const { return (std::min)(m_qr.rows(),m_qr.cols()); }
-  // To use for operations with the transpose of Q
+  inline Index cols() const { return m_qr.rows(); }
+  // To use for operations with the transpose of Q FIXME this is the same as adjoint at the moment
   SparseQRMatrixQTransposeReturnType<SparseQRType> transpose() const
   {
     return SparseQRMatrixQTransposeReturnType<SparseQRType>(m_qr);
@@ -682,6 +702,7 @@ struct SparseQRMatrixQReturnType : public EigenBase<SparseQRMatrixQReturnType<Sp
   const SparseQRType& m_qr;
 };
 
+// TODO this actually represents the adjoint of Q
 template<typename SparseQRType>
 struct SparseQRMatrixQTransposeReturnType
 {
@@ -712,7 +733,7 @@ struct Assignment<DstXprType, SparseQRMatrixQReturnType<SparseQRType>, internal:
   typedef typename DstXprType::StorageIndex StorageIndex;
   static void run(DstXprType &dst, const SrcXprType &src, const internal::assign_op<Scalar,Scalar> &/*func*/)
   {
-    typename DstXprType::PlainObject idMat(src.m_qr.rows(), src.m_qr.rows());
+    typename DstXprType::PlainObject idMat(src.rows(), src.cols());
     idMat.setIdentity();
     // Sort the sparse householder reflectors if needed
     const_cast<SparseQRType *>(&src.m_qr)->_sort_matrix_Q();

@@ -23,7 +23,6 @@ void svd_fill_random(MatrixType &m, int Option = 0)
   using std::pow;
   typedef typename MatrixType::Scalar Scalar;
   typedef typename MatrixType::RealScalar RealScalar;
-  typedef typename MatrixType::Index Index;
   Index diagSize = (std::min)(m.rows(), m.cols());
   RealScalar s = std::numeric_limits<RealScalar>::max_exponent10/4;
   s = internal::random<RealScalar>(1,s);
@@ -65,8 +64,11 @@ void svd_fill_random(MatrixType &m, int Option = 0)
   }
   
   Matrix<Scalar,Dynamic,1> samples(9);
-  samples << 0, four_denorms<RealScalar>(),
-            -RealScalar(1)/NumTraits<RealScalar>::highest(), RealScalar(1)/NumTraits<RealScalar>::highest(), (std::numeric_limits<RealScalar>::min)(), pow((std::numeric_limits<RealScalar>::min)(),0.8);
+  samples << Scalar(0), four_denorms<RealScalar>(),
+            -RealScalar(1)/NumTraits<RealScalar>::highest(),
+            RealScalar(1)/NumTraits<RealScalar>::highest(),
+            (std::numeric_limits<RealScalar>::min)(),
+            pow((std::numeric_limits<RealScalar>::min)(), RealScalar(0.8));
   
   if(Option==Symmetric)
   {
