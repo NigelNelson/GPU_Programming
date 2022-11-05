@@ -1,6 +1,12 @@
 #include "conv.h"
 #include <math.h>
 #include <iostream>
+#include <typeinfo>
+
+static void HandleError(cudaError_t err, const char *file, int line);
+__global__ void conv(const Vector& image, Matrix& weights, float* result, int height_in, int width_in, int height_kernel, int width_kernel,
+                      int height_out, int width_out, int channel_in, int channel_out, int stride, int pad_w, int pad_h);
+#define HANDLE_ERROR(err) (HandleError( err, __FILE__, __LINE__ ))
 
 void Conv::init() {
   height_out = (1 + (height_in - height_kernel + 2 * pad_h) / stride);
@@ -48,26 +54,122 @@ void Conv::im2col(const Vector& image, Matrix& data_col) {
   }
 }
 
+// void Conv::forward(const Matrix& bottom) {
+//   int n_sample = bottom.cols();
+//   top.resize(height_out * width_out * channel_out, n_sample);
+//   data_cols.resize(n_sample);
+//   for (int i = 0; i < n_sample; i ++) {
+//     // im2col
+//     Matrix data_col;
+//     im2col(bottom.col(i), data_col);
+//     data_cols[i] = data_col;
+//     // conv by product
+//     Matrix result = data_col * weight;  // result: (hw_out, channel_out)
+//     result.rowwise() += bias.transpose();
+//     top.col(i) = Eigen::Map<Vector>(result.data(), result.size());
+//   }
+// }
+
 void Conv::forward(const Matrix& bottom) {
   int n_sample = bottom.cols();
   top.resize(height_out * width_out * channel_out, n_sample);
   data_cols.resize(n_sample);
   for (int i = 0; i < n_sample; i ++) {
     // im2col
-    Matrix data_col;
-    im2col(bottom.col(i), data_col);
-    data_cols[i] = data_col;
+    // Matrix data_col;
+    // im2col(bottom.col(i), data_col);
+    // data_cols[i] = data_col;
     // conv by product
+
+    const Vector& image = bottom.col(i);
+
+    Vector *d_image;
+    Matrix *d_weights;
+    float *d_results;
+
+    size_t size_image = sizeof(Vector) * height_in * width_in * channel_in;
+    size_t size_weights = sizeof(Vector) * channel_in * height_kernel * width_kernel * channel_out;
+    size_t size_result = sizeof(float) * height_out * width_out * channel_out;
+
+    HANDLE_ERROR(cudaMalloc((void **)&d_image, size_image));
+    HANDLE_ERROR(cudaMalloc((void **)&d_weights, size_weights));
+    HANDLE_ERROR(cudaMalloc((void **)&d_results, size_result));
+
+    HANDLE_ERROR(cudaMemcpy(d_image, &image, size_image, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_weights, &weight, size_weights, cudaMemcpyHostToDevice));
+
+    int num_threads = 1024;
+
+    int dimGridSizeX = ceil((float)((height_out * width_out) /num_threads));
+    dim3 DimGrid(dimGridSizeX, 1, 1);
+    dim3 DimBlock(num_threads, 1, 1);
+
+
+	  // Kernel call to initialize d_B
+	  conv<<<DimGrid, DimBlock>>>(*d_image, *d_weights, d_results, height_in, width_in, height_kernel,
+     width_kernel, height_out, width_out, channel_in, channel_out, stride, pad_w, pad_h);
+
+
+    float result[height_out * width_out * channel_out];
+
+    cudaMemcpy(result, d_results, size_result, cudaMemcpyDeviceToHost);
     
-    Matrix result = data_col * weight;  // result: (hw_out, channel_out)
-    result.rowwise() += bias.transpose();
-    top.col(i) = Eigen::Map<Vector>(result.data(), result.size());
+    // Matrix result = data_col * weight;  // result: (hw_out, channel_out)
+    Vector output = Eigen::Map<Vector>(result, height_out * width_out * channel_out);
+    output.rowwise() += bias.transpose();
+    top.col(i) = output;
+
+    HANDLE_ERROR(cudaFree(d_image));
+    HANDLE_ERROR(cudaFree(d_weights));
+    HANDLE_ERROR(cudaFree(d_results));
   }
 }
 
-// __global__ dot_pod(const Vector& image, Matrix& data_col){
 
-// }
+__global__ void conv(const Vector& image, Matrix& weights, float *result, int height_in, int width_in, int height_kernel, int width_kernel,
+                      int height_out, int width_out, int channel_in, int channel_out, int stride, int pad_w, int pad_h){
+	/**
+	 * Function responsible for performing GPU matrix multiplication on d_A and d_B
+	 * and storing the result in d_C.
+	 */
+  int hw_in = height_in * width_in;
+  int hw_kernel = height_kernel * width_kernel;
+  int hw_out = height_out * width_out;
+  // im2col
+
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if(i < hw_out){
+    for(int c_out = 0; c_out < channel_out; c_out++){
+      int temp_sum = 0;
+      for (int c_in = 0; c_in < channel_in; c_in ++) {
+        Vector map = image.block(hw_in * c_in, 0, hw_in, 1);  // c-th channel map // Block of size (hw_in,1) starting at (hw_in*c, 0)
+        int step_h = i / width_out;
+        int step_w = i % width_out;
+        int start_idx = step_h * width_in * stride + step_w * stride;  // left-top idx of window
+        for (int j = 0; j < hw_kernel; j ++) {
+          int cur_col = start_idx % width_in + j % width_kernel - pad_w;  // col after padding
+          int cur_row = start_idx / width_in + j / width_kernel - pad_h;
+          int pixel_value;
+          if (cur_col < 0 || cur_col >= width_in || cur_row < 0 ||
+              cur_row >= height_in) {
+            pixel_value = 0;
+          }
+          //weight.resize(channel_in * height_kernel * width_kernel, channel_out);
+          else {
+            //int pick_idx = start_idx + (j / width_kernel) * width_in + j % width_kernel;
+            int pick_idx = cur_row * width_in + cur_col;
+            pixel_value = map(pick_idx);  // pick which pixel
+          }
+        
+          int weight_idx = (channel_out * (c_in + j)) + c_out;
+          temp_sum += weights(weight_idx) * pixel_value;
+        }
+      }
+      int result_idx = i * channel_out + c_out;
+      result[result_idx] = temp_sum;
+    }
+  }
+}
 
 // col2im, used for grad_bottom
 // data_col size: Matrix (hw_out, hw_kernel * channel_in)
@@ -157,4 +259,13 @@ std::vector<float> Conv::get_derivatives() const {
   std::copy(grad_bias.data(), grad_bias.data() + grad_bias.size(),
             res.begin() + grad_weight.size());
   return res;
+}
+
+static void HandleError(cudaError_t err, const char *file, int line ) {
+	/**
+	 * Handle error macro provided by instructor for cuda library calls
+	 */
+	if (err != cudaSuccess) {
+		printf("%s in %s at line %d\n", cudaGetErrorString(err), file, line );
+	}
 }
