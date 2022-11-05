@@ -3,8 +3,10 @@
 #include <iostream>
 #include <typeinfo>
 
+__constant__ float const_weights[4 * 5 * 5 * 16];
+
 static void HandleError(cudaError_t err, const char *file, int line);
-__global__ void conv(const Vector& image, Matrix& weights, float* result, int height_in, int width_in, int height_kernel, int width_kernel,
+__global__ void conv(const Vector& image, float* result, int height_in, int width_in, int height_kernel, int width_kernel,
                       int height_out, int width_out, int channel_in, int channel_out, int stride, int pad_w, int pad_h);
 #define HANDLE_ERROR(err) (HandleError( err, __FILE__, __LINE__ ))
 
@@ -84,19 +86,22 @@ void Conv::forward(const Matrix& bottom) {
     const Vector& image = bottom.col(i);
 
     Vector *d_image;
-    Matrix *d_weights;
+    // Matrix *d_weights;
     float *d_results;
 
     size_t size_image = sizeof(Vector) * height_in * width_in * channel_in;
-    size_t size_weights = sizeof(Vector) * channel_in * height_kernel * width_kernel * channel_out;
+    // size_t size_weights = sizeof(Vector) * channel_in * height_kernel * width_kernel * channel_out;
     size_t size_result = sizeof(float) * height_out * width_out * channel_out;
 
+
+    cudaMemcpyToSymbol(const_weights,weight.data(),sizeof(float) * channel_in * height_kernel * width_kernel * channel_out);
+
     HANDLE_ERROR(cudaMalloc((void **)&d_image, size_image));
-    HANDLE_ERROR(cudaMalloc((void **)&d_weights, size_weights));
+    // HANDLE_ERROR(cudaMalloc((void **)&d_weights, size_weights));
     HANDLE_ERROR(cudaMalloc((void **)&d_results, size_result));
 
     HANDLE_ERROR(cudaMemcpy(d_image, &image, size_image, cudaMemcpyHostToDevice));
-    HANDLE_ERROR(cudaMemcpy(d_weights, &weight, size_weights, cudaMemcpyHostToDevice));
+    // HANDLE_ERROR(cudaMemcpy(d_weights, &weight, size_weights, cudaMemcpyHostToDevice));
 
     int num_threads = 1024;
 
@@ -106,7 +111,7 @@ void Conv::forward(const Matrix& bottom) {
 
 
 	  // Kernel call to initialize d_B
-	  conv<<<DimGrid, DimBlock>>>(*d_image, *d_weights, d_results, height_in, width_in, height_kernel,
+	  conv<<<DimGrid, DimBlock>>>(*d_image, d_results, height_in, width_in, height_kernel,
      width_kernel, height_out, width_out, channel_in, channel_out, stride, pad_w, pad_h);
 
 
@@ -120,18 +125,19 @@ void Conv::forward(const Matrix& bottom) {
     top.col(i) = output;
 
     HANDLE_ERROR(cudaFree(d_image));
-    HANDLE_ERROR(cudaFree(d_weights));
+    //HANDLE_ERROR(cudaFree(d_weights));
     HANDLE_ERROR(cudaFree(d_results));
   }
 }
 
 
-__global__ void conv(const Vector& image, Matrix& weights, float *result, int height_in, int width_in, int height_kernel, int width_kernel,
+__global__ void conv(const Vector& image, float *result, int height_in, int width_in, int height_kernel, int width_kernel,
                       int height_out, int width_out, int channel_in, int channel_out, int stride, int pad_w, int pad_h){
 	/**
 	 * Function responsible for performing GPU matrix multiplication on d_A and d_B
 	 * and storing the result in d_C.
 	 */
+  
   int hw_in = height_in * width_in;
   int hw_kernel = height_kernel * width_kernel;
   int hw_out = height_out * width_out;
@@ -162,7 +168,7 @@ __global__ void conv(const Vector& image, Matrix& weights, float *result, int he
           }
         
           int weight_idx = (channel_out * (c_in + j)) + c_out;
-          temp_sum += weights(weight_idx) * pixel_value;
+          temp_sum += const_weights[weight_idx] * pixel_value;
         }
       }
       int result_idx = i * channel_out + c_out;
