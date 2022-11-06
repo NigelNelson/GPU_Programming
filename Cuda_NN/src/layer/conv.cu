@@ -9,6 +9,15 @@
 
 __constant__ float const_weights[MAX_WEIGHT_SIZE];
 
+float cpu_time1(timespec* start, timespec* end){
+	/**
+	 * Function responsible for returning the ellapsed time in
+	 * milliseconds
+	 */
+	return ((1e9*end->tv_sec + end->tv_nsec) - (1e9*start->tv_sec + 
+	start->tv_nsec))/1e6;
+}
+
 static void HandleError(cudaError_t err, const char *file, int line);
 inline void error_check(cudaError_t err, const char* file, int line);
 __global__ void conv(float* image,  float* result, int height_in, int width_in, int height_kernel, int width_kernel,
@@ -69,10 +78,20 @@ void Conv::im2col(const Vector& image, Matrix& data_col) {
 //   for (int i = 0; i < n_sample; i ++) {
 //     // im2col
 //     Matrix data_col;
+    
+//     // Begin timing the CPU implementation
+//     timespec ts, te;
+//     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+
 //     im2col(bottom.col(i), data_col);
-//     data_cols[i] = data_col;
 //     // conv by product
 //     Matrix result = data_col * weight;  // result: (hw_out, channel_out)
+
+//     // End timing the CPU implementation
+//     clock_gettime(CLOCK_MONOTONIC_RAW, &te);
+//     std::cout << "Time for image size: " << height_in << " | ellapsed time: " << cpu_time1(&ts, &te) << std::endl;
+
+//     data_cols[i] = data_col;
 //     result.rowwise() += bias.transpose();
 //     top.col(i) = Eigen::Map<Vector>(result.data(), result.size());
 //   }
@@ -84,12 +103,6 @@ void Conv::forward(const Matrix& bottom) {
   data_cols.resize(n_sample);
   for (int i = 0; i < n_sample; i ++) {
 
-    // Only need the next 3 lines if wanting to train, otherwise
-    // comment them out and save ~10,000 ms on inference times
-    Matrix data_col;
-    im2col(bottom.col(i), data_col);
-    data_cols[i] = data_col;
-
     float *d_image;
     float *d_results;
 
@@ -100,8 +113,11 @@ void Conv::forward(const Matrix& bottom) {
     HANDLE_ERROR(cudaMalloc((void **)&d_image, size_image));
     HANDLE_ERROR(cudaMalloc((void **)&d_results, size_result));
 
-    // Copy the image data, accessing only the current sample using column-major indexing
-    HANDLE_ERROR(cudaMemcpy(d_image, &bottom.data()[i * height_in * width_in * channel_in], size_image, cudaMemcpyHostToDevice));
+    // Access only the current sample using column-major indexing
+    int image_idx = i * height_in * width_in * channel_in;
+
+    // Copy the image data
+    HANDLE_ERROR(cudaMemcpy(d_image, &bottom.data()[image_idx], size_image, cudaMemcpyHostToDevice));
     // Copy the weight data
     HANDLE_ERROR(cudaMemcpyToSymbol(const_weights, weight.data(), size_weight));
 
@@ -119,9 +135,23 @@ void Conv::forward(const Matrix& bottom) {
     dim3 DimGrid(dimGridSizeX, dimGridSizeY, 1);
     dim3 DimBlock(num_threadsX, num_threadY, 1);
 
+    // Begin profiling code:
+    // cudaEvent_t start, stop; //declare a start and stop event
+    // HANDLE_ERROR(cudaEventCreate(&start)); //create both events
+    // HANDLE_ERROR(cudaEventCreate(&stop));
+    // HANDLE_ERROR(cudaEventRecord(start)); //insert the start event into the stream
+
 	  // Launch Kernel Using Defined dimensions
 	  conv<<<DimGrid, DimBlock>>>(d_image, d_results, height_in, width_in, height_kernel,
      width_kernel, height_out, width_out, channel_in, channel_out, stride, pad_w, pad_h);
+    
+    // End profiling code:
+    // HANDLE_ERROR(cudaEventRecord(stop)); //insert the stop event into the stream
+    // cudaThreadSynchronize();
+    // float milliseconds = 0; //declare a variable to store runtime
+    // HANDLE_ERROR(cudaEventElapsedTime(&milliseconds, start, stop)); //get the elapsed
+    // std::cout << "Time for image size: " << height_in << " | ellapsed time: " << milliseconds << std::endl;
+
     // Ensure Kernel executed sucessfully
     CUDA_CHECK(cudaGetLastError());
 
@@ -234,6 +264,13 @@ void Conv::backward(const Matrix& bottom, const Matrix& grad_top) {
   grad_bottom.resize(height_in * width_in * channel_in, n_sample);
   grad_bottom.setZero();
   for (int i = 0; i < n_sample; i ++) {
+
+    
+    // Forward no longer needs the next 3 rows
+    Matrix data_col;
+    im2col(bottom.col(i), data_col);
+    data_cols[i] = data_col;
+
     // im2col of grad_top
     Matrix grad_top_i = grad_top.col(i);
     Matrix grad_top_i_col = Eigen::Map<Matrix>(grad_top_i.data(),

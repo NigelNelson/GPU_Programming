@@ -84,7 +84,7 @@ int main(void) {
   dnn.forward(dataset.test_data);
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &te);
-	printf("CPU ellapsed time: %f\n", cpu_time(&ts, &te));
+	printf("Ellapsed time: %f\n", cpu_time(&ts, &te));
 
 
   float acc = compute_accuracy(dnn.output(), dataset.test_labels);
