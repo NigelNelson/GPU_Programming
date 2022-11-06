@@ -4,19 +4,13 @@
 #include <typeinfo>
 #include <assert.h>
 
-//__constant__ float const_weights[4 * 5 * 5 * 16];
+__constant__ float const_weights[4 * 5 * 5 * 16];
 
 static void HandleError(cudaError_t err, const char *file, int line);
-__global__ void conv(float* image,  float* weights, float* result, int height_in, int width_in, int height_kernel, int width_kernel,
+inline void error_check(cudaError_t err, const char* file, int line);
+__global__ void conv(float* image,  float* result, int height_in, int width_in, int height_kernel, int width_kernel,
                       int height_out, int width_out, int channel_in, int channel_out, int stride, int pad_w, int pad_h);
 #define HANDLE_ERROR(err) (HandleError( err, __FILE__, __LINE__ ))
-
-inline void error_check(cudaError_t err, const char* file, int line) {
-    if(err != cudaSuccess) {
-        ::fprintf(stderr, "CUDA ERROR at %s[%d] : %s\n", file, line, cudaGetErrorString(err));
-        abort();
-    }
-}
 #define CUDA_CHECK(err) do { error_check(err, __FILE__, __LINE__); } while(0)
 
 void Conv::init() {
@@ -86,194 +80,90 @@ void Conv::forward(const Matrix& bottom) {
   top.resize(height_out * width_out * channel_out, n_sample);
   data_cols.resize(n_sample);
   for (int i = 0; i < n_sample; i ++) {
-    // im2col
+
+    // Only need the next 3 lines if wanting to train, otherwise
+    // comment them out and save ~10,000 ms on inference times
     Matrix data_col;
     im2col(bottom.col(i), data_col);
     data_cols[i] = data_col;
-    // conv by product
-    Matrix result1 = data_col * weight;  // result: (hw_out, channel_out)
-    result1.rowwise() += bias.transpose();
 
     float *d_image;
-    float *d_weights;
     float *d_results;
 
     size_t size_image = sizeof(float) * height_in * width_in * channel_in;
-    size_t size_weights = sizeof(float) * channel_in * height_kernel * width_kernel * channel_out;
     size_t size_result = sizeof(float) * height_out * width_out * channel_out;
-    //size_t size_weight_data = sizeof(float) * channel_in * height_kernel * width_kernel * channel_out;
-
-
-    //cudaMemcpyToSymbol(const_weights,weight.data(),sizeof(float) * channel_in * height_kernel * width_kernel * channel_out);
+    size_t size_weight = sizeof(float) * channel_in * height_kernel * width_kernel * channel_out;
 
     HANDLE_ERROR(cudaMalloc((void **)&d_image, size_image));
-    HANDLE_ERROR(cudaMalloc((void **)&d_weights, size_weights));
     HANDLE_ERROR(cudaMalloc((void **)&d_results, size_result));
 
+    // Copy the image data, accessing only the current sample using column-major indexing
     HANDLE_ERROR(cudaMemcpy(d_image, &bottom.data()[i * height_in * width_in * channel_in], size_image, cudaMemcpyHostToDevice));
-    HANDLE_ERROR(cudaMemcpy(d_weights, weight.data(), size_weights, cudaMemcpyHostToDevice));
+    // Copy the weight data
+    HANDLE_ERROR(cudaMemcpyToSymbol(const_weights, weight.data(), size_weight));
 
-    int num_threads = 1024;
+    // Define more X threads as there are usually more pixels
+    // than there are channels out
+    int num_threadsX = 256;
+    int num_threadY = 4;
 
+    // Use float to prevent int division
     float hw_out = height_out * width_out;
 
-    int dimGridSizeX = ceil(hw_out/num_threads);
+    int dimGridSizeX = ceil(hw_out/num_threadsX);
+    int dimGridSizeY = ceil(channel_out/num_threadY);
 
-    dim3 DimGrid(dimGridSizeX);
-    dim3 DimBlock(num_threads);
+    dim3 DimGrid(dimGridSizeX, dimGridSizeY, 1);
+    dim3 DimBlock(num_threadsX, num_threadY, 1);
 
-
-	  // Kernel call to initialize d_B
-	  conv<<<DimGrid, DimBlock>>>(d_image,d_weights, d_results, height_in, width_in, height_kernel,
+	  // Launch Kernel Using Defined dimensions
+	  conv<<<DimGrid, DimBlock>>>(d_image, d_results, height_in, width_in, height_kernel,
      width_kernel, height_out, width_out, channel_in, channel_out, stride, pad_w, pad_h);
-    // conv(image, weight, results2, height_in, width_in, height_kernel,
-    //  width_kernel, height_out, width_out, channel_in, channel_out, stride, pad_w, pad_h);
+    // Ensure Kernel executed sucessfully
     CUDA_CHECK(cudaGetLastError());
 
-    // float result[height_out * width_out * channel_out];
+    // Copy the result over to a host array
     float result[height_out * width_out * channel_out];
-
     cudaMemcpy(result, d_results, size_result, cudaMemcpyDeviceToHost);
-
-    //std::cout << "Got this far" << std::endl;
-
-    // float *image2 = new float[height_in * width_in * channel_in];
-    // cudaMemcpy(image2, d_image, size_image, cudaMemcpyDeviceToHost);
-    // for(int i = 0; i < height_in * width_in * channel_in; i++){
-    //   std::cout << "idx: " << i << " | " << image2[i] << " - " << image(i) << std::endl;
-    // }
-    // Matrix *weights2 = new Matrix(channel_in * height_kernel * width_kernel, channel_out);
-    // cudaMemcpy(weights2, d_weights, size_weights, cudaMemcpyDeviceToHost);
-    // for(int i = 0; i < channel_in * height_kernel * width_kernel * channel_out; i++){
-    //   std::cout << "idx: " << i << " | " << (*weights2)(i) << " - " << weight(i) << std::endl;
-    // }
-    
-    // Matrix result = data_col * weight;  // result: (hw_out, channel_out)
+    // Create an Eigen::Matrix and convert the 1D array to 2D
     Matrix output = Eigen::Map<Matrix>(result, height_out * width_out, channel_out);
-
-    // std::cout << "size og " << test.size() << std::endl;
-    // std::cout << "size new " << output.size() << std::endl;
-    // std::cout << "is equal? " << test.isApprox(output) << std::endl;
-
-    // for(int i = 0; i < width_out*height_out*channel_out; i++){
-    //   std::cout << "idx: " << i << " | " << result1(i) << " - " << output(i) << std::endl;
-    // }
-
-    // output.rowwise() += bias.transpose();
-    // top.col(i) = output;
-    //free(result);
+    // Add bias
     output.rowwise() += bias.transpose();
 
-    std::cout << result1.isApprox(output) << std::endl;
+    // Flatten the output
     top.col(i) = Eigen::Map<Vector>(output.data(), output.size());
-    //std::cout << "got hur" << std::endl; 
+
+    // Free Cuda Memory
     HANDLE_ERROR(cudaFree(d_image));
-    HANDLE_ERROR(cudaFree(d_weights));
     HANDLE_ERROR(cudaFree(d_results));
+    // Check for any Cuda Errrors
     CUDA_CHECK(cudaGetLastError());
-    //std::cout << "got past" << std::endl;
   }
 }
 
 
-// __global__ void conv(const Vector& image,  Matrix& weights, float *result, int height_in, int width_in, int height_kernel, int width_kernel,
-//                       int height_out, int width_out, int channel_in, int channel_out, int stride, int pad_w, int pad_h){
-// 	/**
-// 	 * Function responsible for performing GPU matrix multiplication on d_A and d_B
-// 	 * and storing the result in d_C.
-// 	 */
-  
-//   int hw_in = height_in * width_in;
-//   int hw_kernel = height_kernel * width_kernel;
-//   int hw_out = height_out * width_out;
-//   int size_kernel = hw_kernel * channel_in * channel_out;
-//   // im2col
-//   extern __shared__ Matrix shared_weights;
-
-//   int i = blockIdx.x * blockDim.x + threadIdx.x;
-//   int idx;
-//   for(int w_idx = 0; w_idx < ceil((float)((size_kernel) / 1024)); w_idx++){
-//       idx = w_idx * 1024 + i;
-
-//       if(idx < size_kernel){
-//         shared_weights(idx) = weights(idx);
-//       }
-//   }
-//   __syncthreads();
-
-
-//   if(i < hw_out){
-//     for(int c_out = 0; c_out < channel_out; c_out++){
-//       int temp_sum = 0;
-//       for (int c_in = 0; c_in < channel_in; c_in ++) {
-//         Vector map = image.block(hw_in * c_in, 0, hw_in, 1);  // c-th channel map // Block of size (hw_in,1) starting at (hw_in*c, 0)
-//         int step_h = i / width_out;
-//         int step_w = i % width_out;
-//         int start_idx = step_h * width_in * stride + step_w * stride;  // left-top idx of window
-//         for (int j = 0; j < hw_kernel; j ++) {
-//           int cur_col = start_idx % width_in + j % width_kernel - pad_w;  // col after padding
-//           int cur_row = start_idx / width_in + j / width_kernel - pad_h;
-//           float pixel_value;
-//           if (cur_col < 0 || cur_col >= width_in || cur_row < 0 ||
-//               cur_row >= height_in) {
-//             pixel_value = 0;
-//           }
-//           ///weight.resize(channel_in * height_kernel * width_kernel, channel_out);
-//           else {
-//             //int pick_idx = start_idx + (j / width_kernel) * width_in + j % width_kernel;
-//             int pick_idx = cur_row * width_in + cur_col;
-//             pixel_value = map(pick_idx);  // pick which pixel
-//           }
-//           //width * row + col;
-//           // height * col + row;
-
-
-//           // store in column-major
-//           //int weight_idx = (channel_out * (c_in + j)) + c_out;
-//           int weight_idx = (channel_in * height_kernel * width_kernel * c_out) + (c_in*j);
-//           temp_sum += weights(weight_idx) * pixel_value;
-//           //temp_sum += const_weights[weight_idx] * pixel_value;
-//         }
-//       }
-
-//       // result: (hw_out, channel_out)
-//       // store in column-major
-//       //int result_idx = hw_out * c_out + i;
-//       int result_idx = i * channel_out + c_out;
-//       result[result_idx] = temp_sum;
-//     }
-//   }
-// }
-
-__global__ void conv(float *image,  float *weights, float* result, int height_in, int width_in, int height_kernel, int width_kernel,
+__global__ void conv(float *image, float* result, int height_in, int width_in, int height_kernel, int width_kernel,
                       int height_out, int width_out, int channel_in, int channel_out, int stride, int pad_w, int pad_h){
 	/**
-	 * Function responsible for performing GPU matrix multiplication on d_A and d_B
-	 * and storing the result in d_C.
+	 * Function responsible for performing GPU Convolution on the provided image, using the kernel stored in constant
+   * memory, and story the result in the result array. **Note all data is stored Column-Major**
 	 */
   
+  // Define
   int hw_in = height_in * width_in;
   int hw_kernel = height_kernel * width_kernel;
   int hw_out = height_out * width_out;
-  int size_kernel = hw_kernel * channel_in * channel_out;
-  // im2col
 
-  // Matrix shared_weights(channel_in * height_kernel * width_kernel, channel_out);
-  // int idx;
-  // for(int w_idx = 0; w_idx < ceil((float)((size_kernel) / 1024.00)); w_idx++){
-  //     idx = w_idx * 1024 + i;
+  // Define the pixel being operated on from the input image
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  // Define the index of the channel out being written to
+  int c_out = blockIdx.y * blockDim.y + threadIdx.y;
 
-  //     if(idx < size_kernel){
-  //       shared_weights(idx) = weights(idx);
-  //     }
-  // }
- // __syncthreads();
-
- int i = blockIdx.x * blockDim.x + threadIdx.x;
-  for (int c_out = 0; c_out < channel_out; c_out++) {
+  if(i < hw_out && c_out < channel_out){
+    // create temp var to store intermediate values
     float temp = 0;
     for (int c = 0; c < channel_in; c ++) {
-      //Vector map = image.block(hw_in * c, 0, hw_in, 1);  // c-th channel map // Block of size (hw_in,1) starting at (hw_in*c, 0)
+      // Get the image for the current channel 
       float *map = &(image[hw_in * c]);
       int step_h = i / width_out;
       int step_w = i % width_out;
@@ -287,21 +177,16 @@ __global__ void conv(float *image,  float *weights, float* result, int height_in
           pixel_value = 0;
         }
         else {
-          //int pick_idx = start_idx + (j / width_kernel) * width_in + j % width_kernel;
+          // Get column-major index
           int pick_idx = cur_row * width_in + cur_col;
-          //pixel_value = map(pick_idx);
           pixel_value = map[pick_idx];
         }
-        // hw_out, hw_kernel * channel_in
-        // weight.resize(channel_in * height_kernel * width_kernel, channel_out);
-        // weight.resize(channel_in * height_kernel * width_kernel, channel_out);
-        temp += pixel_value * weights[hw_kernel*channel_in*c_out + (c * hw_kernel + j)];
+        // Get column-major index
+        int weight_idx = hw_kernel*channel_in*c_out + (c * hw_kernel + j);
+        temp += pixel_value * const_weights[weight_idx];
       }
     }
-    // width * row + col;
-    // height * col + row
-    // hw_out * c_out + i
-    // result[(i, c_out) ]= temp;
+    // Write out column-major
     result[hw_out * c_out + i] = temp;
   }
 }
@@ -404,4 +289,11 @@ static void HandleError(cudaError_t err, const char *file, int line ) {
 	if (err != cudaSuccess) {
 		printf("%s in %s at line %d\n", cudaGetErrorString(err), file, line );
 	}
+}
+
+inline void error_check(cudaError_t err, const char* file, int line) {
+    if(err != cudaSuccess) {
+        ::fprintf(stderr, "CUDA ERROR at %s[%d] : %s\n", file, line, cudaGetErrorString(err));
+        abort();
+    }
 }
