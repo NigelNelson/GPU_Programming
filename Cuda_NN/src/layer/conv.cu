@@ -4,7 +4,10 @@
 #include <typeinfo>
 #include <assert.h>
 
-__constant__ float const_weights[4 * 5 * 5 * 16];
+// Largest weights are shape (5 * 5 * 4, 16)
+#define MAX_WEIGHT_SIZE 1600
+
+__constant__ float const_weights[MAX_WEIGHT_SIZE];
 
 static void HandleError(cudaError_t err, const char *file, int line);
 inline void error_check(cudaError_t err, const char* file, int line);
