@@ -11,9 +11,9 @@ aux_source_directory(. DIR_SRCS)
 # 添加 math 子目录
 add_subdirectory(src)
 # 指定生成目标 
-add_executable(demo demo.cc)
+#add_executable(demo demo.cc)
 cuda_add_executable(test time_inference.cu)
 # 添加链接库
-target_link_libraries(demo MiniDNNLib)
+#target_link_libraries(demo MiniDNNLib)
 target_link_libraries(test MiniDNNLib)
 
