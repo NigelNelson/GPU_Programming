@@ -11,6 +11,7 @@ aux_source_directory(. DIR_SRCS)
 # 添加 math 子目录
 add_subdirectory(src)
 # 指定生成目标 
+
 cuda_add_executable(demo demo.cu)
 cuda_add_executable(test time_inference.cu)
 # 添加链接库

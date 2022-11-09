@@ -24,6 +24,11 @@
 #include "src/optimizer.h"
 #include "src/optimizer/sgd.h"
 
+// elapsed time in milliseconds
+float cpu_time_trng(timespec* start, timespec* end) {
+  return ( (1e9*end->tv_sec + end->tv_nsec) 
+         - (1e9*start->tv_sec +start->tv_nsec) ) / 1e6;
+}
 
 int main() {
   // data
@@ -63,6 +68,10 @@ int main() {
   // SGD opt(0.001);
   const int n_epoch = 5;
   const int batch_size = 128;
+
+  timespec ts, te;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+
   for (int epoch = 0; epoch < n_epoch; epoch ++) {
     shuffle_data(dataset.train_data, dataset.train_labels);
     for (int start_idx = 0; start_idx < n_train; start_idx += batch_size) {
@@ -86,6 +95,11 @@ int main() {
       // optimize
       dnn.update(opt);
     }
+
+    clock_gettime(CLOCK_MONOTONIC_RAW, &te);
+
+    std::cout << "Training run time: " << cpu_time_trng(&ts, &te) << std::endl;
+
     // test
     dnn.forward(dataset.test_data);
     float acc = compute_accuracy(dnn.output(), dataset.test_labels);

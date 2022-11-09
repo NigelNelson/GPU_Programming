@@ -14,14 +14,10 @@ __global__ void d_transpose(float* a, float* b, int rowsA, int colsA);
 __global__ void d_flip_str_order(float* row_mtx, float* col_mtx, size_t rows, size_t cols, bool isRowMajor);
 __global__ void gpu_mat_mul(float *d_A, float *d_B, float *d_C, int m, int n, int k);
 
-// Return the result of row * width + col
-__host__ __device__ size_t indexify_RM(size_t row, size_t width, size_t col) {
-  return ((row * width) + col);
-}
-
-// Return the result of col * height + row
-__host__ __device__ size_t indexify_CM(size_t row, size_t height, size_t col) {
-  return ((col * height) + row);
+// elapsed time in milliseconds
+float cpu_time_fl_cn(timespec* start, timespec* end) {
+  return ( (1e9*end->tv_sec + end->tv_nsec) 
+         - (1e9*start->tv_sec +start->tv_nsec) ) / 1e6;
 }
 
 void getThrCnt(size_t* thrCnt) {
@@ -56,49 +52,75 @@ void FullyConnected::init() {
 
 // SK: Modified Parallel implementation
 void FullyConnected::forward(const Matrix& bottom) {
+  float *d_weight, *d_bottom, *d_top, *h_top, *h_wght;
+  bool RUN_CPU = false;
   // z = w' * x + b
   // Resize output matrix so weight * bottom is possible
   const int n_sample = bottom.cols();
   top.resize(dim_out, n_sample); // output matrix will be ROWS[dim_out] x COLS[n_sample]
 
-  size_t sz_weight = weight.size() * sizeof(float);
-  size_t sz_bottom = bottom.size() * sizeof(float);
-  size_t sz_top = top.size() * sizeof(float);
+  if(RUN_CPU) {
+    timespec ts, te;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    top = weight.transpose() * bottom;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &te);
 
-  float *d_weight, *d_bottom, *d_top, *h_top, *h_wght;
-  h_top = (float*)malloc(sz_top);
-  h_wght = (float*)malloc(sz_weight);
+    std::cout << "CPU run time: " << cpu_time_fl_cn(&ts, &te) << std::endl;
+    std::cout << "\tMultipling: Weight rows: " << weight.rows() << " by cols: " << weight.cols() << std::endl;
+    std::cout << "\tMultiplaing Bottom rows: " << bottom.rows() << " by cols: " << bottom.cols() << std::endl;
+    
+  } else {
+    size_t sz_weight = weight.size() * sizeof(float);
+    size_t sz_bottom = bottom.size() * sizeof(float);
+    size_t sz_top = top.size() * sizeof(float);
+    h_top = (float*)malloc(sz_top);
+    h_wght = (float*)malloc(sz_weight);
   
-  HANDLE_ERROR(cudaMalloc((void**)&d_weight, sz_weight));
-  HANDLE_ERROR(cudaMalloc((void**)&d_bottom, sz_bottom));
-  HANDLE_ERROR(cudaMalloc((void**)&d_top, sz_top));
+    HANDLE_ERROR(cudaMalloc((void**)&d_weight, sz_weight));
+    HANDLE_ERROR(cudaMalloc((void**)&d_bottom, sz_bottom));
+    HANDLE_ERROR(cudaMalloc((void**)&d_top, sz_top));
 
-  HANDLE_ERROR(cudaMemcpy(d_weight, weight.data(), sz_weight, cudaMemcpyHostToDevice));
-  HANDLE_ERROR(cudaMemcpy(d_bottom, bottom.data(), sz_bottom, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_weight, weight.data(), sz_weight, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_bottom, bottom.data(), sz_bottom, cudaMemcpyHostToDevice));
 
-  size_t threadCnt = 0;
-  getThrCnt(&threadCnt);
-  float num_threads = (float)threadCnt;
+    size_t threadCnt = 0;
+    getThrCnt(&threadCnt);
+    float num_threads = (float)threadCnt;
 
-  int dimGridSizeY_C = ceil((float)top.rows()/num_threads);
-	int dimGridSizeX_C = ceil((float)top.cols()/num_threads);
-  dim3 DimGrid(dimGridSizeX_C, dimGridSizeY_C, 1);
-  dim3 DimBlock(num_threads, num_threads, 1);
+    int dimGridSizeY_C = ceil((float)top.rows()/num_threads);
+	  int dimGridSizeX_C = ceil((float)top.cols()/num_threads);
+    dim3 DimGrid(dimGridSizeX_C, dimGridSizeY_C, 1);
+    dim3 DimBlock(num_threads, num_threads, 1);
   
-  gpu_mat_mul<<<DimGrid, DimBlock>>>(d_weight, d_bottom, d_top, dim_out, dim_in, n_sample);
+    //cudaEvent_t start, stop;
+    //HANDLE_ERROR(cudaEventCreate(&start));
+    //HANDLE_ERROR(cudaEventCreate(&stop));
+    //HANDLE_ERROR(cudaEventRecord(start));
+    gpu_mat_mul<<<DimGrid, DimBlock>>>(d_weight, d_bottom, d_top, dim_out, dim_in, n_sample);
+    //HANDLE_ERROR(cudaDeviceSynchronize());
+    //HANDLE_ERROR(cudaEventRecord(stop));
+    //HANDLE_ERROR(cudaEventSynchronize(stop));
+    //float ms = 0;
+    //HANDLE_ERROR(cudaEventElapsedTime(&ms, start, stop));
+    //std::cout << "Time Fully Connected Forward Matrix: " << ms << std::endl;
+    //std::cout << "\tMultipling: Weight rows: " << weight.rows() << " by cols: " << weight.cols() << std::endl;
+    //std::cout << "\tMultiplaing Bottom rows: " << bottom.rows() << " by cols: " << bottom.cols() << std::endl;
 
-  HANDLE_ERROR(cudaMemcpy(h_top, d_top, sz_top, cudaMemcpyDeviceToHost));
+    HANDLE_ERROR(cudaMemcpy(h_top, d_top, sz_top, cudaMemcpyDeviceToHost));
 
-  top = Eigen::Map<Vector>(h_top, dim_out * n_sample);
-  top.resize(dim_out, n_sample);
+    top = Eigen::Map<Vector>(h_top, dim_out * n_sample);
+    top.resize(dim_out, n_sample);
+  } // end CPU / GPU matrix mult
 
   top.colwise() += bias;  // for each column in top, add vector bias
 
-  free(h_top);
-  HANDLE_ERROR(cudaFree(d_weight));
-  HANDLE_ERROR(cudaFree(d_bottom));
-  HANDLE_ERROR(cudaFree(d_top));
-  CUDA_CHECK(cudaGetLastError());
+  if (!RUN_CPU) {
+    free(h_top);
+    HANDLE_ERROR(cudaFree(d_weight));
+    HANDLE_ERROR(cudaFree(d_bottom));
+    HANDLE_ERROR(cudaFree(d_top));
+    CUDA_CHECK(cudaGetLastError());
+  }
 }
 
 // =======================================================
