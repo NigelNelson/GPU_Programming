@@ -6,8 +6,8 @@
 
 class FullyConnected : public Layer {
  private:
-  const int dim_in;
-  const int dim_out;
+  const int dim_in; // SK: weight rows
+  const int dim_out; // SK: weight cols
 
   Matrix weight;  // weight parameter
   Vector bias;  // bias paramter
