@@ -7,6 +7,7 @@ static void HandleError(cudaError_t err, const char *file, int line);
 inline void error_check(cudaError_t err, const char* file, int line);
 //__global__ void relu(float* mat, float* result);
 __global__ void relu(float* mat, int mat_size, int rows, int cols);
+void getThrCnt(size_t* thrCnt);
 #define HANDLE_ERROR(err) (HandleError( err, __FILE__, __LINE__ ))
 #define CUDA_CHECK(err) do { error_check(err, __FILE__, __LINE__); } while(0)
 
@@ -37,35 +38,22 @@ float cpu_time2(timespec* start, timespec* end){
 // }
 
 void ReLU::forward(const Matrix& bottom) {
-  // a = z*(z>0)
-
-  //std::cout << "ReLU FORWARD:" << std::endl;
-  //std::cout << bottom.rows() << ", " << bottom.cols() << std::endl;
-
   // get rows and cols
   int rows = bottom.rows();
   int cols = bottom.cols();
 
   int mat_size = rows * cols;
   int mat_mem_size = mat_size * sizeof(float);
-  //std::cout << "Matrix size: " << mat_size << std::endl;
 
   float *d_mat;
-  //float *d_result;
-
-  //std::cout << "Allocating Memory" << std::endl;
-  // allocate memory for the device matrix
+ 
   HANDLE_ERROR(cudaMalloc((void **)&d_mat, mat_mem_size));
-  //HANDLE_ERROR(cudaMalloc((void **)&d_result, mat_mem_size));
 
   CUDA_CHECK(cudaGetLastError());
 
-  //std::cout << "Copying memory" << std::endl;
-  // copy memory to GPU ram
   HANDLE_ERROR(cudaMemcpy(d_mat, bottom.data(), mat_size, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaGetLastError());
 
-  // how many threads should I use?
   float num_threadsX = 32.00;
   float num_threadsY = 32.00;
 
@@ -78,17 +66,11 @@ void ReLU::forward(const Matrix& bottom) {
 
   CUDA_CHECK(cudaGetLastError());
 
-  // run kernel
-  //std::cout << "Running Kernel" << std::endl;
-  //relu<<<DimGrid, DimBlock>>>(d_mat, d_result);
-
   // TIMING:
   cudaEvent_t start, stop; //declare a start and stop event
   HANDLE_ERROR(cudaEventCreate(&start)); //create both events
   HANDLE_ERROR(cudaEventCreate(&stop));
   HANDLE_ERROR(cudaEventRecord(start)); //insert the start event into the stream
-
-  //std::cout << "TESTING:\n" << 
 
   relu<<<DimGrid, DimBlock>>>(d_mat, mat_size, rows, cols);
 
@@ -97,17 +79,12 @@ void ReLU::forward(const Matrix& bottom) {
   cudaThreadSynchronize();
   float milliseconds = 0; //declare a variable to store runtime
   HANDLE_ERROR(cudaEventElapsedTime(&milliseconds, start, stop)); //get the elapsed
-  //std::cout << "Matrix size: " << mat_size << " | elapsed time: " << milliseconds << std::endl;
-
-  //std::cout << "Kernel Finished" << std::endl;
 
   CUDA_CHECK(cudaGetLastError());
 
   float * result = (float*) malloc(mat_size * sizeof(float));
 
-  //std::cout << "Copying data back:" << std::endl;
-  HANDLE_ERROR(cudaMemcpy(result, d_mat, mat_mem_size, cudaMemcpyDeviceToHost));  //fixme d_result?  // or mat_size?
-  //std::cout << "Copied back successfully" << std::endl;
+  HANDLE_ERROR(cudaMemcpy(result, d_mat, mat_mem_size, cudaMemcpyDeviceToHost));
 
   CUDA_CHECK(cudaGetLastError());
 
@@ -153,4 +130,23 @@ inline void error_check(cudaError_t err, const char* file, int line) {
         ::fprintf(stderr, "CUDA ERROR at %s[%d] : %s\n", file, line, cudaGetErrorString(err));
         abort();
     }
+}
+
+void getThrCnt(size_t* thrCnt) {
+
+  HANDLE_ERROR(cudaFree(0));
+
+  int dev = 0;
+
+  HANDLE_ERROR(cudaGetDevice(&dev));
+
+  HANDLE_ERROR(cudaSetDevice(dev));
+
+  // Find maximum threads per block dimension and use that
+  cudaDeviceProp prop;
+
+  HANDLE_ERROR(cudaGetDeviceProperties(&prop, dev));
+
+  (*thrCnt) = (int)sqrt((double)prop.maxThreadsDim[0]);
+
 }

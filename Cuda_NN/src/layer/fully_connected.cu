@@ -10,7 +10,6 @@ inline void error_check(cudaError_t err, const char* file, int line);
 // SK: Forward Prop Fully Connected Kernel
 #define TILE_SIZE 16
 void getDims(size_t* thrCnt, size_t* blkRWs, size_t* blkCLs, size_t rows, size_t cols);
-__global__ void d_transpose(float* a, float* b, int rowsA, int colsA);
 __global__ void d_flip_str_order(float* row_mtx, float* col_mtx, size_t rows, size_t cols, bool isRowMajor);
 __global__ void gpu_mat_mul(float *d_A, float *d_B, float *d_C, int m, int n, int k);
 
@@ -57,17 +56,17 @@ void FullyConnected::forward(const Matrix& bottom) {
   // z = w' * x + b
   // Resize output matrix so weight * bottom is possible
   const int n_sample = bottom.cols();
-  top.resize(dim_out, n_sample); // output matrix will be ROWS[dim_out] x COLS[n_sample]
+  top.resize(dim_out, n_sample);
 
   if(RUN_CPU) {
-    timespec ts, te;
+    // timespec ts, te;
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-    top = weight.transpose() * bottom;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &te);
+    // top = weight.transpose() * bottom;
+    // clock_gettime(CLOCK_MONOTONIC_RAW, &te);
 
-    std::cout << "CPU run time: " << cpu_time_fl_cn(&ts, &te) << std::endl;
-    std::cout << "\tMultipling: Weight rows: " << weight.rows() << " by cols: " << weight.cols() << std::endl;
-    std::cout << "\tMultiplaing Bottom rows: " << bottom.rows() << " by cols: " << bottom.cols() << std::endl;
+    // std::cout << "CPU run time: " << cpu_time_fl_cn(&ts, &te) << std::endl;
+    // std::cout << "\tMultipling: Weight rows: " << weight.rows() << " by cols: " << weight.cols() << std::endl;
+    // std::cout << "\tMultiplaing Bottom rows: " << bottom.rows() << " by cols: " << bottom.cols() << std::endl;
     
   } else {
     size_t sz_weight = weight.size() * sizeof(float);
@@ -126,20 +125,6 @@ void FullyConnected::forward(const Matrix& bottom) {
 // =======================================================
 //                   Device Operations
 // =======================================================
-
-// Transpose Matrix A to matrix B
-__global__ void d_transpose(float* a, float* b, int rowsA, int colsA) {
-   int rIDX = threadIdx.x + blockIdx.x * blockDim.x;
-   int cIDX = threadIdx.y + blockIdx.y * blockDim.y;
-
-  // Transpose
-  // ensure tIdxs are within the weight matrix dimensions
-  if ( rIDX < rowsA && cIDX < colsA) {
-    int m_idx = cIDX * rowsA + rIDX;
-    int t_idx = rIDX * colsA + cIDX;
-    b[t_idx] = a[m_idx];
-  }
-}
 
 __global__ void gpu_mat_mul(float *d_A, float *d_B, float *d_C, int m, int n, int k){
 	/**
