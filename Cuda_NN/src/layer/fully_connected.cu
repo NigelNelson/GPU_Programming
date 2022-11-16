@@ -137,14 +137,9 @@ __global__ void gpu_mat_mul(float *d_A, float *d_B, float *d_C, int m, int n, in
 	if(row < m && col < k){
 		int i;
 		for(i = 0; i < n; i++){
-      // row * width + col
-      // col * height + row
-      //a_idx = i * m + row;
 			b_idx = col * n + i;
 			c_idx = col * m + row;
 			a_idx = row * n + i;
-			// b_idx = i * k + col;
-			// c_idx = row * k + col;
 			d_C[c_idx] += d_A[a_idx] * d_B[b_idx];
 		}
 	}
