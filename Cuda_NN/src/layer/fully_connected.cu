@@ -60,8 +60,8 @@ void FullyConnected::forward(const Matrix& bottom) {
 
   if(RUN_CPU) {
     // timespec ts, te;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-    // top = weight.transpose() * bottom;
+    // clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    top = weight.transpose() * bottom;
     // clock_gettime(CLOCK_MONOTONIC_RAW, &te);
 
     // std::cout << "CPU run time: " << cpu_time_fl_cn(&ts, &te) << std::endl;

@@ -7,7 +7,6 @@ static void HandleError(cudaError_t err, const char *file, int line);
 inline void error_check(cudaError_t err, const char* file, int line);
 //__global__ void relu(float* mat, float* result);
 __global__ void relu(float* mat, int mat_size, int rows, int cols);
-void getThrCnt(size_t* thrCnt);
 #define HANDLE_ERROR(err) (HandleError( err, __FILE__, __LINE__ ))
 #define CUDA_CHECK(err) do { error_check(err, __FILE__, __LINE__); } while(0)
 
@@ -130,23 +129,4 @@ inline void error_check(cudaError_t err, const char* file, int line) {
         ::fprintf(stderr, "CUDA ERROR at %s[%d] : %s\n", file, line, cudaGetErrorString(err));
         abort();
     }
-}
-
-void getThrCnt(size_t* thrCnt) {
-
-  HANDLE_ERROR(cudaFree(0));
-
-  int dev = 0;
-
-  HANDLE_ERROR(cudaGetDevice(&dev));
-
-  HANDLE_ERROR(cudaSetDevice(dev));
-
-  // Find maximum threads per block dimension and use that
-  cudaDeviceProp prop;
-
-  HANDLE_ERROR(cudaGetDeviceProperties(&prop, dev));
-
-  (*thrCnt) = (int)sqrt((double)prop.maxThreadsDim[0]);
-
 }
